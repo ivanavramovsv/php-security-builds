@@ -33,8 +33,12 @@ jobs:
           mkdir -p reports
           python3 -m py_compile scripts/source_audit.py
           python3 scripts/source_audit.py --output reports/source-audit.json
+      - name: Show provenance report even when sources are unavailable
+        if: always()
+        run: |
+          if [ -f reports/source-audit.json ]; then cat reports/source-audit.json; fi
       - name: Check official PHP 8.2.35 source archive
-        if: success()
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
