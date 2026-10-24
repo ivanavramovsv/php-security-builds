@@ -38,20 +38,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p reports
-          python3 -m py_compile investigations/focal_build_and_rollback.py
+          python3 -m py_compile investigations/focal_build_and_rollback.py investigations/compare_fpm_build_flags.py
+          python3 -m unittest discover -s investigations -p 'test_*.py' -v
           python3 investigations/focal_build_and_rollback.py --output reports/focal-arm64-rollback.json
+          python3 investigations/compare_fpm_build_flags.py --output reports/fpm-configure-comparison.json
       - name: Print audit details
         if: always()
         shell: bash
         run: |
-          if [ -f reports/focal-arm64-rollback.json ]; then
-            cat reports/focal-arm64-rollback.json
-          fi
+          if [ -f reports/focal-arm64-rollback.json ]; then cat reports/focal-arm64-rollback.json; fi
+          if [ -f reports/fpm-configure-comparison.json ]; then cat reports/fpm-configure-comparison.json; fi
       - name: Upload diagnostic JSON only - never downloaded binaries
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: php82-focal-arm64-rollback-audit
-          path: reports/focal-arm64-rollback.json
+          path: reports/
           retention-days: 14
           if-no-files-found: error
