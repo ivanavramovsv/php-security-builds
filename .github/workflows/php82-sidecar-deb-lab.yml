@@ -188,6 +188,74 @@ jobs:
           } > "$GITHUB_WORKSPACE/reports/php82-sidecar-package-lab.txt"
           cat "$GITHUB_WORKSPACE/reports/php82-sidecar-package-lab.txt"
 
+      - name: Install, verify and remove ONLY lab package in disposable Focal container
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEB=/tmp/sidecar-build/php82-arm64-sidecar-lab.deb
+          PKG_NAME=php82-arm64-sidecar-lab
+          # Fail closed: all destructive operations are confined to a fixed lab prefix.
+          test "$PHP_PREFIX" = '/opt/php82-arm64-sidecar-lab/8.2.35'
+          test "$(dpkg-deb -f "$DEB" Package)" = "$PKG_NAME"
+          test "$(dpkg-deb -f "$DEB" Version)" = '8.2.35-0lab1'
+          test "$(dpkg-deb -f "$DEB" Architecture)" = 'arm64'
+          if dpkg-query -W -f='\${Status}' "$PKG_NAME" 2>/dev/null | grep -Fqx 'install ok installed'; then
+            echo 'PACKAGE_ALREADY_INSTALLED_REFUSE_TEST'; exit 61
+          fi
+          dpkg-query -W -f='\${Package}\t\${Version}\t\${db:Status-Abbrev}\n' \
+            | LC_ALL=C sort > /tmp/sidecar-build/package-set-before.txt
+          # The source-build installation is deliberately discarded before
+          # testing installation of the exact .deb in this ephemeral container.
+          test -f "$PHP_PREFIX/bin/php"
+          rm -rf -- "$PHP_PREFIX"
+          test ! -e "$PHP_PREFIX"
+          dpkg --no-triggers --no-force-all --install "$DEB"
+          test "$(dpkg-query -W -f='\${db:Status-Status}' "$PKG_NAME")" = installed
+          test -x "$PHP_PREFIX/bin/php"
+          test -x "$PHP_PREFIX/sbin/php-fpm"
+          EXT_DIR=$("$PHP_PREFIX/bin/php-config" --extension-dir)
+          case "$EXT_DIR" in "$PHP_PREFIX"/*) ;; *) echo 'INSTALL_EXTENSION_DIR_ESCAPE'; exit 62 ;; esac
+          test -f "$EXT_DIR/imagick.so"
+          dpkg-query -S "$PHP_PREFIX/bin/php" | grep -F "$PKG_NAME:"
+          dpkg --verify "$PKG_NAME"
+          "$PHP_PREFIX/bin/php" -n -d "extension=$EXT_DIR/imagick.so" -r '
+            if (PHP_VERSION !== "8.2.35" || PHP_ZTS || phpversion("imagick") !== "3.7.0") exit(63);
+            foreach (["PDO","pdo_mysql","mysqli","mbstring","intl","openssl","curl","zip","gd","dom","SimpleXML"] as $ext) {
+              if (!extension_loaded($ext)) exit(64);
+            }
+            $img=new Imagick(); $img->newImage(2,2,new ImagickPixel("blue"));
+            $img->setImageFormat("png"); $img2=new Imagick();
+            $img2->readImageBlob($img->getImageBlob());
+            if ($img2->getImageWidth()!==2 || $img2->getImageHeight()!==2) exit(65);
+            echo "INSTALLED_DEB_PHP_IMAGICK_PNG=PASS\\n";
+          '
+          "$PHP_PREFIX/sbin/php-fpm" -n -d "extension=$EXT_DIR/imagick.so" -m \
+            | grep -Fx 'imagick'
+          dpkg --no-triggers --remove "$PKG_NAME"
+          test ! -e "$PHP_PREFIX/bin/php"
+          test ! -e "$EXT_DIR/imagick.so"
+          dpkg --no-triggers --purge "$PKG_NAME"
+          if dpkg-query -W -f='\${db:Status-Status}' "$PKG_NAME" 2>/dev/null | grep -Fqx installed; then
+            echo 'PACKAGE_STILL_INSTALLED'; exit 66
+          fi
+          dpkg-query -W -f='\${Package}\t\${Version}\t\${db:Status-Abbrev}\n' \
+            | LC_ALL=C sort > /tmp/sidecar-build/package-set-after.txt
+          cmp /tmp/sidecar-build/package-set-before.txt /tmp/sidecar-build/package-set-after.txt
+          {
+            echo 'LAB_PACKAGE_INSTALL=PASS'
+            echo 'LAB_PACKAGE_DPKG_VERIFY=PASS'
+            echo 'LAB_PACKAGE_CLI_AND_FPM=PASS'
+            echo 'LAB_PACKAGE_PNG_ROUNDTRIP=PASS'
+            echo 'LAB_PACKAGE_REMOVE_AND_PURGE=PASS'
+            echo 'LAB_DPKG_PACKAGE_INVENTORY_UNCHANGED=PASS'
+            echo 'TEST_ENVIRONMENT=TEMPORARY_GITHUB_UBUNTU_20_04_ARM64'
+            echo 'SERVER_ROLLBACK_PROVEN=false'
+            echo 'ORIGINAL_SURYPACKAGES_RESTORED=false'
+            echo 'ORACLE_VPS_MODIFIED=false'
+            echo 'PRODUCTION_DEPLOYMENT_READY=false'
+          } >> "$GITHUB_WORKSPACE/reports/php82-sidecar-package-lab.txt"
+          echo 'LAB_INSTALL_REMOVE_TESTS=PASS'
+
       - name: Print short failed-step diagnostics
         if: failure()
         shell: bash
