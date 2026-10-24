@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - setup/arm64-source-audit
+    paths:
+      - '.github/workflows/source-audit.yml'
+      - 'scripts/**'
   workflow_dispatch:
 
 concurrency:
