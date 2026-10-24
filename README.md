@@ -12,8 +12,9 @@
 |---|---|---|
 | .github/workflows/upstream-smoke.yml | Минимално компилиране на официален PHP 8.2.35 CLI/FPM | PASS |
 | .github/workflows/expanded-php82-smoke.yml | PHP 8.2.35 CLI/FPM с 11 вградени разширения | PASS |
-| .github/workflows/imagick-source-provenance.yml | Проверка на официалния PECL Imagick 3.8.1 source архив | PASS |
+| .github/workflows/imagick-source-provenance.yml | Проверка на официалните PECL Imagick 3.7.0 и 3.8.1 source архиви | PASS |
 | .github/workflows/imagick-php82-smoke.yml | Компилиране и PNG roundtrip с Imagick 3.8.1 срещу PHP 8.2.35 | PASS |
+| .github/workflows/imagick-370-php82-smoke.yml | Компилиране и PNG roundtrip с продукционната версия Imagick 3.7.0 срещу PHP 8.2.35 | PASS |
 
 Успешни изпълнения: [минимален build](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40083395805), [разширен build](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40084823661), [Imagick проверка на източник](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40086739891), [Imagick build и тест](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40087383864).
 
@@ -39,3 +40,22 @@
 - Промените са в отделен Draft PR. Няма автоматично сливане.
 
 Условия за бъдещо внедряване: [docs/deployment-acceptance-gates.md](docs/deployment-acceptance-gates.md).
+
+
+## Етап 1J — сравнение с реалната PHP конфигурация на Oracle VPS (24 октомври 2026)
+
+Получен е read-only отчет от оператора за Ubuntu 20.04 ARM64 и PHP-FPM 7.4.33, 8.0.30, 8.2.24. Всички са активни; CLI NTS=0, DEBUG=0, dpkg audit CLEAN; трите PHP версии зареждат Imagick 3.7.0. Версиите, CLI/FPM модули и контролните суми от отчета **не се добавят в това публично хранилище**.
+
+Ключови изводи: PHP 8.2 extension API суфикс 20220829, еднакъв с изолирания PHP 8.2.35; FPM има Imagick 3.7.0; Redis/igbinary/APCu се използват в PHP 7.4/8.0, но не са регистрирани в PHP 8.2. Всички три версии имат mitigation-file стойност 0, което не замества PHP security upgrade.
+
+За да запазим версията на продукционния Imagick, разширихме source provenance workflow да проверява и официалния PECL imagick-3.7.0.tgz:
+
+- PECL Imagick 3.7.0 archive: 360138 байта, SHA-256 `5a364354109029d224bcbb2e82e15b248be9b641227f45e63425c06531792d3e`.
+- [Source verification PASS](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40097241137).
+- [Изолиран PHP 8.2.35 + Imagick 3.7.0 на Ubuntu 20.04 ARM64: PASS](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40097314536).
+- Новият Imagick 3.7.0 се компилира със собствен PHP 8.2.35 `phpize`/`php-config`, зарежда се успешно в CLI и FPM; API `20220829`, NTS, и PNG 2×2 roundtrip PASS.
+- `readelf` потвърждава NEEDED имена `libMagickWand-6.Q16.so.6` и `libMagickCore-6.Q16.so.6`, идентични с двете ImageMagick зависимости на реалния сървър.
+
+**Ограничение:** тестът използва ново компилиран Imagick 3.7.0; той **не** доказва, че старият продукционен `imagick.so` ще се зареди в новия PHP, нито че пълното Debian пакетиране е еквивалентно. Изградените файлове са останали само във временния CI контейнер.
+
+**DEPLOYMENT_READY=NO:** историческите PPA Debian sources, пакетните ABI проверки, HestiaCP интеграционните тестове и надежден rollback все още са блокери. На Oracle VPS няма извършени промени.
