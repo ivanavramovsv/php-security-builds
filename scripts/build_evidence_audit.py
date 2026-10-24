@@ -56,14 +56,16 @@ def fetch_limited(url, limit):
 
 
 def paragraphs(text):
+    # Debian deb822 permits fields with an empty first line (notably checksum
+    # sections). Match only space or tabs after ':', never generic \s.
     result = {}
     last = None
     for line in text.splitlines():
-        if re.match(r"^[A-Za-z][A-Za-z0-9-]*:\s", line):
-            name, value = line.split(":", 1)
-            last = name
-            result[name] = value.strip()
-        elif line.startswith(" ") and last:
+        match = re.match(r"^([A-Za-z][A-Za-z0-9-]*):[ \t]*(.*)$", line)
+        if match:
+            last = match.group(1)
+            result[last] = match.group(2)
+        elif line.startswith((" ", "\t")) and last:
             result[last] += "\n" + line
         else:
             last = None
@@ -80,24 +82,25 @@ def sha_entries(value):
 
 
 def extract_build_log(blob):
-    if blob.startswith(b"\x1f\x8b"):
-        import io
-        with gzip.GzipFile(fileobj=io.BytesIO(blob)) as gz:
-            decoded = gz.read(20 * 1024 * 1024 + 1)
-    else:
-        decoded = blob
-    if len(decoded) > 20 * 1024 * 1024:
-        raise ValueError("decompressed build log exceeds 20 MiB limit")
-    text = decoded.decode("utf-8", errors="replace")
-    lines = text.splitlines()
-    # Reduce output size and avoid exposing environment variables in full logs.
-    hits = [
-        line.strip()[:250]
-        for line in lines
-        if re.search(r"(^|[\s/])(?:dpkg-buildpackage|debian/rules|dh_auto_configure)(?:[\s:]|$)", line)
-    ]
-    return {"decompressed_length": len(text), "line_count": len(lines),
-            "build_command_sample": hits[:8]}
+    import io
+    stream = gzip.GzipFile(fileobj=io.BytesIO(blob)) if blob.startswith(b"\x1f\x8b") else io.BytesIO(blob)
+    scanned = 0
+    lines = 0
+    hits = []
+    truncated = False
+    with stream:
+        for raw in stream:
+            scanned += len(raw)
+            if scanned > 100 * 1024 * 1024 or lines > 1_000_000:
+                truncated = True
+                break
+            lines += 1
+            if len(hits) < 12:
+                line = raw.decode("utf-8", errors="replace").strip()
+                if re.search(r"(dpkg-buildpackage|debian/rules|dh_auto_configure)", line):
+                    hits.append(line[:250])
+    return {"scanned_bytes": scanned, "line_count": lines,
+            "truncated": truncated, "build_command_sample": hits}
 
 
 def main():
