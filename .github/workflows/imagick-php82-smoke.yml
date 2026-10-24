@@ -63,17 +63,21 @@ jobs:
             --prefix="$PHP_PREFIX" \
             --with-config-file-path="$PHP_PREFIX/etc" \
             --with-config-file-scan-dir="$PHP_PREFIX/etc/conf.d" \
-            --disable-all --enable-cli --enable-fpm --disable-cgi --without-pear \
+            --disable-all --enable-cli --enable-fpm --disable-cgi --disable-phpdbg --without-pear \
             > /tmp/imagick-smoke/php-configure.log 2>&1
           make -j2 > /tmp/imagick-smoke/php-make.log 2>&1
           make install > /tmp/imagick-smoke/php-install.log 2>&1
-          test -x "$PHP_PREFIX/bin/php"
-          test -x "$PHP_PREFIX/bin/phpize"
-          test -x "$PHP_PREFIX/bin/php-config"
-          test -x "$PHP_PREFIX/sbin/php-fpm"
-          test "$("$PHP_PREFIX/bin/php-config" --phpapi)" = '20220829'
+          echo "ISOLATED_INSTALL_PREFIX=$PHP_PREFIX"
+          for exe in bin/php bin/phpize bin/php-config sbin/php-fpm; do
+            test -x "$PHP_PREFIX/$exe" || { echo "MISSING_EXECUTABLE=$exe"; exit 31; }
+            echo "EXECUTABLE_OK=$exe"
+          done
+          PHP_API=$("$PHP_PREFIX/bin/php-config" --phpapi)
+          echo "ISOLATED_PHP_API=$PHP_API"
+          test "$PHP_API" = '20220829' || { echo "PHP_API_MISMATCH"; exit 32; }
           "$PHP_PREFIX/bin/php" -n -r 'if (PHP_VERSION !== "8.2.35") exit(5);'
           "$PHP_PREFIX/sbin/php-fpm" -v
+          echo 'PHP82_TOOLCHAIN_READY=PASS'
 
       - name: Compile PECL Imagick using the isolated PHP 8.2.35 phpize
         shell: bash
@@ -136,6 +140,14 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          if [ -d "$PHP_PREFIX" ]; then
+            echo '===== ISOLATED PHP INSTALL FILES ====='
+            find "$PHP_PREFIX" -maxdepth 2 -type f -name '*php*' -print | head -40
+            if [ -x "$PHP_PREFIX/bin/php-config" ]; then
+              "$PHP_PREFIX/bin/php-config" --phpapi || true
+              "$PHP_PREFIX/bin/php-config" --version || true
+            fi
+          fi
           for log in /tmp/imagick-smoke/{php-configure,php-make,php-install,imagick-phpize,imagick-configure,imagick-make,imagick-install,fpm-modules}.log; do
             if [ -f "$log" ]; then
               echo "===== $(basename "$log") ====="
