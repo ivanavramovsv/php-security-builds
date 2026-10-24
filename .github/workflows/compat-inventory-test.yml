@@ -1,0 +1,61 @@
+name: Read-only Oracle PHP inventory safety tests
+
+on:
+  push:
+    branches:
+      - setup/arm64-source-audit
+    paths:
+      - '.github/workflows/compat-inventory-test.yml'
+      - 'diagnostics/**'
+      - 'tests/test_compatibility_inventory.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: php-compat-inventory-test
+  cancel-in-progress: true
+
+jobs:
+  safe-inventory-tests:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+    steps:
+      - name: Install test tools only in disposable Focal container
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates bash python3
+      - name: Check out public scripts and synthetic fixtures
+        uses: actions/checkout@v4
+      - name: Bash/Python syntax and fail-closed regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n diagnostics/oracle-php-compatibility-inventory.sh
+          python3 -m py_compile diagnostics/compare-inventory.py tests/test_compatibility_inventory.py
+          python3 -m unittest discover -s tests -p 'test_compatibility_inventory.py' -v
+      - name: Run inventory on disposable container only
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash diagnostics/oracle-php-compatibility-inventory.sh > /tmp/focal-php-inventory.txt
+          grep -Fx 'MODE=READ_ONLY' /tmp/focal-php-inventory.txt
+          grep -Fx 'REPORT_END=YES' /tmp/focal-php-inventory.txt
+          python3 diagnostics/compare-inventory.py /tmp/focal-php-inventory.txt \
+            > /tmp/focal-php-comparison.txt
+          grep -Fx 'REPORT_FORMAT=PASS' /tmp/focal-php-comparison.txt
+          grep -Fx 'REPORT_COMPLETE=PASS' /tmp/focal-php-comparison.txt
+          grep -Fx 'ARCHITECTURE=PASS' /tmp/focal-php-comparison.txt
+          grep -Fx 'OS_FOCAL=PASS' /tmp/focal-php-comparison.txt
+          grep -Fx 'PRODUCTION_DEPLOYMENT_READY=NO' /tmp/focal-php-comparison.txt
+          echo 'SANITIZED_INVENTORY_SMOKE=PASS'
+          echo 'REAL_ORACLE_SERVER_QUERIED=false'
+          echo 'DEPLOYMENT_ALLOWED=false'
