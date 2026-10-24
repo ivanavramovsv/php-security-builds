@@ -132,3 +132,42 @@ jobs:
           path: reports/launchpad-forensics.json
           if-no-files-found: error
           retention-days: 14
+
+  historical-arm64-build-evidence:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+    steps:
+      - name: Install evidence inspection tools in disposable container
+        run: |
+          set -eu
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates python3
+      - name: Check out audit script
+        uses: actions/checkout@v4
+      - name: Audit original September 2024 ARM64 build files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          python3 -m py_compile scripts/build_evidence_audit.py
+          python3 scripts/build_evidence_audit.py --output reports/build-evidence.json
+      - name: Display filtered metadata and accessibility
+        if: always()
+        shell: bash
+        run: |
+          if [ -f reports/build-evidence.json ]; then
+            cat reports/build-evidence.json
+          fi
+      - name: Upload diagnostic metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php82-original-arm64-build-evidence
+          path: reports/build-evidence.json
+          if-no-files-found: error
+          retention-days: 14
