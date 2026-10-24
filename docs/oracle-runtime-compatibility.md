@@ -17,15 +17,14 @@
 Copy and run these lines in the server's SSH terminal. All source verification must succeed **before** execution:
 
 ```bash
-set -e
 OUT=/tmp/oracle-php-compatibility-inventory.sh
 curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
   'https://raw.githubusercontent.com/ivanavramovsv/php-security-builds/a303c1e8d17ca93b719b6945d38eb14838e973a0/diagnostics/oracle-php-compatibility-inventory.sh' \
-  --output "$OUT"
+  --output "$OUT" &&
 printf '%s  %s\n' \
   '37bc5e46df447752244542029ab6112799c2d805960430f4240191bb464222d4' \
-  "$OUT" | sha256sum --check
-bash -n "$OUT"
+  "$OUT" | sha256sum --check &&
+bash -n "$OUT" &&
 bash "$OUT"
 ```
 
