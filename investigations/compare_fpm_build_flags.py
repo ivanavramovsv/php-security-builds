@@ -56,6 +56,16 @@ def get_verified(url, expected, size_limit):
     return raw
 
 
+def fetch_historical_debian_rules():
+    last_error = None
+    for _ in range(2):
+        try:
+            return get_verified(DEBIAN_RULES_URL, DEBIAN_RULES_SHA256, 64 * 1024)
+        except Exception as error:
+            last_error = error
+    raise RuntimeError(str(last_error))
+
+
 def scan_log(raw):
     commands = {}
     read_bytes = 0
@@ -128,18 +138,24 @@ def main():
         if not historic["complete"] or not historic["targets"]:
             raise RuntimeError("No complete configure command evidence in original build log")
         out["original_build"] = historic
-        rules = get_verified(DEBIAN_RULES_URL, DEBIAN_RULES_SHA256, 64 * 1024)
-        out["debian_rules_verified"] = True
-        out["historical_debian_rules"] = extract_rules_flags(rules)
-        original_flags = set()
-        for cmd in historic["targets"].values():
-            original_flags.update(cmd["all_flags"])
-        rule_flags = set(out["historical_debian_rules"]["lexical_flags"])
-        out["candidate_flags_missing_in_historical_debian_rules"] = sorted(
-            x for x in original_flags - rule_flags
-            if x.startswith(("--with-", "--enable-")) and len(x) < 120
-        )[:160]
-        out["state"] = "PINNED_FOCAL_BUILD_FLAGS_AND_DEBIAN_RULES_COMPARED"
+        # Historic Debian source is supplementary. Never turn a transient
+        # GitLab outage into a false claim that original Focal flags are missing.
+        out["state"] = "ORIGINAL_FOCAL_CONFIGURE_COMMANDS_VERIFIED"
+        try:
+            rules = fetch_historical_debian_rules()
+            out["debian_rules_verified"] = True
+            out["historical_debian_rules"] = extract_rules_flags(rules)
+            original_flags = set()
+            for cmd in historic["targets"].values():
+                original_flags.update(cmd["all_flags"])
+            rule_flags = set(out["historical_debian_rules"]["lexical_flags"])
+            out["candidate_flags_missing_in_historical_debian_rules"] = sorted(
+                x for x in original_flags - rule_flags
+                if x.startswith(("--with-", "--enable-")) and len(x) < 120
+            )[:160]
+            out["state"] = "PINNED_FOCAL_BUILD_FLAGS_AND_DEBIAN_RULES_COMPARED"
+        except Exception as error:
+            out["errors"].append("Optional Debian Salsa comparison unavailable: " + str(error)[:160])
     except Exception as error:
         out["errors"].append(str(error))
     finally:
@@ -150,7 +166,7 @@ def main():
         print("ORIGINAL_BUILD_TARGETS=" + ",".join(sorted((out["original_build"] or {}).get("targets", {}))))
         print("EXACT_FOCAL_PACKAGING_PROVEN=False")
         print("PRODUCTION_MODIFIED=False")
-    return 0 if out["state"] == "PINNED_FOCAL_BUILD_FLAGS_AND_DEBIAN_RULES_COMPARED" else 1
+    return 0 if out["source_verified_original_arm64_buildlog"] and out["original_build"] and out["original_build"]["complete"] else 1
 
 
 if __name__ == "__main__":
