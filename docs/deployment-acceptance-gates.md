@@ -6,7 +6,7 @@
 
 - PHP 8.2.35 CLI/FPM може да бъде компилиран и стартиран в Ubuntu 20.04 ARM64.
 - Потвърдени са 11 вградени разширения: PDO, pdo_mysql, mysqli, mbstring, intl, openssl, curl, zip, gd, dom и SimpleXML.
-- PECL Imagick 3.8.1 е компилиран с `phpize` на PHP 8.2.35; CLI/FPM зареждане и PNG 2 × 2 roundtrip са успешни.
+- PECL Imagick 3.8.1 **и реално използваната версия 3.7.0** са независимо компилирани с `phpize` на PHP 8.2.35; CLI/FPM зареждане и PNG 2 × 2 roundtrip са успешни и за двете. Продукционният `.so` файл не е тестван с PHP 8.2.35.
 - PHP API за изолирания PHP 8.2.35: `20220829` (NTS).
 
 ## Блокиращи изисквания
@@ -22,3 +22,16 @@
 **В хранилището не се добавят диагностични скриптове за Oracle VPS, временни резултати или чувствителни отчети.** При необходимост инструментите се предоставят като самостоятелни файлове за изтегляне в разговора и се изпълняват от оператора само след преглед. Тези файлове не са част от GitHub Actions CI.
 
 Няма сървърни credentials в GitHub, production SSH, CI deployment стъпки или системни операции.
+
+
+## Реална продукционна инвентаризация и Imagick 3.7.0
+
+Read-only отчетът на оператора потвърждава: Ubuntu 20.04 ARM64; три активни FPM 7.4.33/8.0.30/8.2.24, PHP 8.2 API директория 20220829; Imagick 3.7.0 във всички версии; libMagickWand-6.Q16.so.6 и libMagickCore-6.Q16.so.6; dpkg --audit CLEAN; трите mitigation-file стойности са 0.
+
+Успешен [отделен source checksum audit](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40097241137) за PECL Imagick 3.7.0: SHA-256 `5a364354109029d224bcbb2e82e15b248be9b641227f45e63425c06531792d3e`.
+
+Успешен [PHP 8.2.35 плюс Imagick 3.7.0 ARM64 Focal smoke test](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40097314536): PHP CLI, PHP-FPM модул, собствено phpize, API 20220829/NTS, PNG roundtrip и NEEDED зависимости към същите основни ImageMagick shared-library имена.
+
+**Все още не е доказано:** byte-for-byte или dynamic symbol ABI съвместимост на оригиналния инсталиран `imagick.so`, съвместимост на всички външни разширения и реалните PHP-FPM пулове, безопасно Debian пакетиране и изпитан rollback.
+
+Диагностични скриптове не се включват в GitHub — предоставят се само като отделни файлове за изтегляне в ChatGPT.
