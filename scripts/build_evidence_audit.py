@@ -81,9 +81,14 @@ def sha_entries(value):
 
 def extract_build_log(blob):
     if blob.startswith(b"\x1f\x8b"):
-        text = gzip.decompress(blob).decode("utf-8", errors="replace")
+        import io
+        with gzip.GzipFile(fileobj=io.BytesIO(blob)) as gz:
+            decoded = gz.read(20 * 1024 * 1024 + 1)
     else:
-        text = blob.decode("utf-8", errors="replace")
+        decoded = blob
+    if len(decoded) > 20 * 1024 * 1024:
+        raise ValueError("decompressed build log exceeds 20 MiB limit")
+    text = decoded.decode("utf-8", errors="replace")
     lines = text.splitlines()
     # Reduce output size and avoid exposing environment variables in full logs.
     hits = [
