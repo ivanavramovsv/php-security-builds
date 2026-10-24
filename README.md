@@ -176,3 +176,20 @@ PHP 8.2.35 е компилиран със значително повече вг
 Допълнителна независима историческа следа: официалният GitHub Imagick таг 3.8.1 сочи към commit 70087bab33eab913e99ac77d64d04d1a2fd0b7b0 (https://github.com/Imagick/imagick/releases/tag/3.8.1). Това не доказва байтова идентичност между Git snapshot и PECL tarball; използваният PECL архив е отделно пиннат по SHA-256.
 
 **Следващи задачи:** сравняване на действително инсталирания на Oracle VPS Imagick и другите PHP 8.2 модули само с read-only инвентаризация; после възпроизводим пакетен build и rollback. Подготовката в GitHub не предполага автоматично внедряване.
+
+## Етап 1I — диагностика на реалния Oracle VPS (предстои изпълнение от оператора)
+
+Добавени са два безопасни локални инструмента: 
+- [diagnostics/oracle-php-compatibility-inventory.sh](diagnostics/oracle-php-compatibility-inventory.sh) — извежда само PHP версия, PHP API, заглавията и версиите на инсталирани пакети и модули, FPM module names, статуса на FPM, SHA-256 и динамични зависимости на imagick.so, както и стойността от познатия mitigation файл.
+- [diagnostics/compare-inventory.py](diagnostics/compare-inventory.py) — сравнява инвентаризацията с известните версии PHP 7.4.33, 8.0.30, 8.2.24 и очакваните API номера, винаги отказва продукционен deployment.
+
+**Проверки:** Bash и Python синтаксис, четири независими offline regression теста, тест в чист Ubuntu 20.04 ARM64 контейнер и интеграционен тест с подменени PHP 8.2 изпълними файлове — всички PASS.
+
+- [CI syntax and offline tests](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40090247991)
+- [CI mocked PHP 8.2 integration](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40090394591)
+
+**Важно:** GitHub Actions няма достъп до Oracle VPS. Истинската инвентаризация още не е изпълнявана върху него. Резултатът ѝ не трябва да се качва в публичното GitHub хранилище. След технически преглед на скрипта, той може да се стартира ръчно от SSH без sudo.
+
+**Точните команди с пиннат Git commit и проверка на SHA-256:** [docs/oracle-runtime-compatibility.md](docs/oracle-runtime-compatibility.md).
+
+Пакетният/rollback gate остава BLOCKED; не са внедрявани промени в продукционната машина.
