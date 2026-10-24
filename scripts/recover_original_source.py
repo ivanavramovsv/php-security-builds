@@ -34,7 +34,7 @@ PUBLIC_BASES = (
     "https://launchpad.net/~ondrej/+archive/ubuntu/php/+files/",
     "https://ppa.launchpadcontent.net/ondrej/php/ubuntu/pool/main/p/php8.2/",
 )
-ALLOWED = {"launchpad.net", "launchpadlibrarian.net", "ppa.launchpadcontent.net"}
+ALLOWED = {"launchpad.net", "launchpadlibrarian.net", "ppa.launchpadcontent.net", "www.php.net", "php.net"}
 
 
 def download_verified(url, maxsize):
@@ -92,8 +92,10 @@ def main():
                 "attempts": [],
             }
             report["files"][name] = entry
-            for base in PUBLIC_BASES:
-                url = base + urllib.parse.quote(name, safe="+._-")
+            candidates = [base + urllib.parse.quote(name, safe="+._-") for base in PUBLIC_BASES]
+            if name == "php8.2_8.2.24.orig.tar.xz":
+                candidates.append("https://www.php.net/distributions/php-8.2.24.tar.xz")
+            for url in candidates:
                 attempt = {"host": urllib.parse.urlparse(url).hostname, "verified": False}
                 entry["attempts"].append(attempt)
                 try:
