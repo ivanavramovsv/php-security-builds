@@ -25,6 +25,17 @@ TAGS = {
 PACKAGING_FILES = ("debian/changelog", "debian/control", "debian/rules", "debian/patches/series")
 EXPECTED_DEBIAN_CHANGELOG = re.compile(r"^php8[.]2 [(]8[.]2[.]24-1~deb12u1[)]")
 USER_AGENT = "php-security-builds-history-check/1.0"
+# Immutable values observed on 2026-10-24; prohibit silent source substitution.
+EXPECTED_GIT_COMMITS = {
+    "upstream": "5e8566cc17eef336fb7d9662274ed716235ff806",
+    "debian": "1c00e932a76764e68397b4026a017f114403ad72",
+}
+EXPECTED_PACKAGING_SHA256 = {
+    "debian/changelog": "eaa2672c14a5cdadbc9b9b9b479668e739502201b8c7b87a60d64f843bc1f6a6",
+    "debian/control": "de19c0f127cdad14f56c12a7c3cfa1d30304ff4277d6ee74c95e4adcf39e4915",
+    "debian/rules": "ecac872e30c09ef6bf79853da5d1a2224f00c8f75c7968c6a9ee6bcf43897cab",
+    "debian/patches/series": "b8425e3ff2c0fd27b78822aee044bae3d89d048e4cc95045acd468d1f9169877",
+}
 
 
 def read_bytes(url):
@@ -95,6 +106,8 @@ def main():
                 raise RuntimeError("Unable to independently validate Salsa tag: " + tag)
             if checks["git_sha"] != checks["gitlab_api_sha"]:
                 raise RuntimeError("Git / GitLab API tag SHA disagreement: " + tag)
+            if checks["git_sha"] != EXPECTED_GIT_COMMITS[kind]:
+                raise RuntimeError("Tag no longer matches pinned historical commit: " + tag)
 
         for path in PACKAGING_FILES:
             try:
@@ -115,6 +128,8 @@ def main():
                 meta["first_line"] = first
                 if not EXPECTED_DEBIAN_CHANGELOG.match(first):
                     raise RuntimeError("Historical Debian changelog version differs: " + first)
+            if meta["sha256"] != EXPECTED_PACKAGING_SHA256[path]:
+                raise RuntimeError("Historical packaging file digest changed: " + path)
             out["debian_packaging_files"].append(meta)
 
         out["gate"] = "DEBIAN_TAG_AND_PACKAGING_VERIFIED_PPA_NOT_EQUIVALENT"
