@@ -214,3 +214,39 @@ jobs:
           path: reports/source-recovery.json
           if-no-files-found: error
           retention-days: 14
+
+  historical-dependency-inventory:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+    steps:
+      - name: Install tools in isolated Focal container
+        run: |
+          set -eu
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates python3 apt
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Inspect historical build dependencies without installing PHP
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          python3 -m py_compile scripts/historical_builddeps_audit.py
+          python3 scripts/historical_builddeps_audit.py --output reports/historical-builddeps.json
+      - name: Display dependency inventory
+        if: always()
+        run: |
+          if [ -f reports/historical-builddeps.json ]; then cat reports/historical-builddeps.json; fi
+      - name: Upload inventory only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php82-historical-arm64-builddeps
+          path: reports/historical-builddeps.json
+          if-no-files-found: error
+          retention-days: 14
