@@ -93,3 +93,42 @@ jobs:
           path: reports/salsa-history.json
           if-no-files-found: warn
           retention-days: 14
+
+  launchpad-publishing-forensics:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+    steps:
+      - name: Install diagnostic dependencies in ephemeral Focal container
+        run: |
+          set -eu
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates python3
+      - name: Check out diagnostic script
+        uses: actions/checkout@v4
+      - name: Inspect exact historic Launchpad source publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          python3 -m py_compile scripts/launchpad_forensics.py
+          python3 scripts/launchpad_forensics.py --output reports/launchpad-forensics.json
+      - name: Display source and build provenance
+        if: always()
+        shell: bash
+        run: |
+          if [ -f reports/launchpad-forensics.json ]; then
+            cat reports/launchpad-forensics.json
+          fi
+      - name: Upload metadata report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php82-launchpad-publishing-forensics
+          path: reports/launchpad-forensics.json
+          if-no-files-found: error
+          retention-days: 14
