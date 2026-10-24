@@ -92,3 +92,32 @@ GitHub Actions изтегля само изходни/диагностични �
 **Окончателният gate остава BLOCKED**, докато не бъдат доказани подходящите Focal пакетни настройки и планът за връщане към старите PHP пакети. Историческото пакетиране в Debian Salsa е полезен източник за разработка, но не разрешава подмяна на работещи системни пакети.
 
 Източници: https://blog.launchpad.net/general/action-back-up-old-sources-from-ppas и https://ubuntu.com/docs/launchpad/developer/explanation/core-components-and-set-up/publisher/ubuntu-archive-publisher/
+
+## Етап 1D — доказан исторически dependency mismatch
+
+[GitHub Actions dependency inventory](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40083125880) сравни SHA-256-проверения оригинален ARM64 `.buildinfo` на PHP 8.2.24 (27.09.2024) с чист контейнер Ubuntu 20.04, без активиран исторически PPA:
+
+- **397** действителни build зависимости;
+- **64** проверени ABI/пакетно-чувствителни зависимости;
+- **30** съвпадащи и **34** различни или липсващи версии;
+- В build-a от 2024 г. има backport/PPA зависимости, включително `libpcre2`, `libxml2`, `libzip`, `libgd`, `libargon2` и `debhelper`.
+
+Тези разлики означават, че чистият Focal контейнер **не възпроизвежда историческата среда**. Самите различия не доказват двоична несъвместимост, а днешните налични версии не дават информация за тези на продукционния Oracle VPS. Документът `reports/historical-builddeps.json` е GitHub Actions артефакт, не е изходен инсталационен план.
+
+## Етап 1E — успешно изолирано upstream smoke изграждане
+
+[GitHub Actions upstream CLI/FPM smoke](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40083395805) е **PASS**: оригиналният `php-8.2.35.tar.xz` е проверен по SHA-256, `./configure --disable-all --enable-cli --enable-fpm --disable-cgi --without-pear` и `make -j2` приключиха успешно в GitHub ARM64 / Ubuntu 20.04, а `sapi/cli/php -v`, `sapi/fpm/php-fpm -v` и CLI smoke тестът показаха PHP 8.2.35.
+
+Това е **минимално upstream компилиране**, а НЕ пакетиране като `.deb`, НЕ тест на всички разширения и НЕ съвместимост със HestiaCP. Изградените файлове се изхвърлят с изолирания runner; публикува се само кратък диагностичен отчет. Няма инсталирани или променени файлове на Oracle VPS.
+
+### Блокиращи задачи преди продукционно внедряване
+
+1. Възстановяване/доказване на правилното Ubuntu 20.04 `debian/` пакетиране и пълната PHP build конфигурация.
+2. Валидирани версии и ABI на необходимите системни библиотеки и външни PHP разширения.
+3. Пълни ARM64 `.deb` пакети със собствена версия за сигурност, независими пакетни тестове, проверки на PHP-FPM пулове и миграционни тестове.
+4. Пълни оригинални архиви за rollback или друго надеждно, предварително проверено възстановяване.
+5. Отделно изрично одобрение преди реален `apt install` върху Oracle VPS.
+
+Нито минималното upstream компилиране, нито успешните изследователски задачи отменят `SOURCE_GATE=BLOCKED` на оригиналните PPA архиви.
+
+С цел пестене на GitHub runner ресурси, build workflow се задейства от промени в собствения workflow (или ръчно), а диагностичният изследователски workflow — само при промяна в неговите скриптове или конфигурация.
