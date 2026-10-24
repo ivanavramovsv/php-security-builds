@@ -39,7 +39,7 @@ def git_remote_tag(tag):
         ["git", "ls-remote", "--tags", "--exit-code", REPOSITORY, ref, ref + "^{}"],
         text=True, capture_output=True, timeout=45, check=True,
     )
-    tags = dict(line.split("\t", 1) for line in proc.stdout.splitlines() if "\t" in line)
+    tags = {refname: sha for line in proc.stdout.splitlines() if "\t" in line\n            for sha, refname in [line.split("\t", 1)]}
     result = tags.get(ref + "^{}") or tags.get(ref)
     if not result or not re.fullmatch("[0-9a-f]{40}", result):
         raise RuntimeError("No valid SHA for remote tag " + tag)
