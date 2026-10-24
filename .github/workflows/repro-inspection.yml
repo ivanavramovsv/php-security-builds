@@ -1,0 +1,57 @@
+name: PHP original Focal ARM64 build and rollback forensics
+
+on:
+  push:
+    branches:
+      - setup/arm64-source-audit
+    paths:
+      - '.github/workflows/repro-inspection.yml'
+      - 'investigations/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: php-ppa-repro-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ppa-build-rollback-forensics:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+    steps:
+      - name: Install minimal HTTPS and Python tools in disposable container
+        run: |
+          set -eu
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates python3
+      - name: Check out read-only audit code
+        uses: actions/checkout@v4
+      - name: Verify script syntax and pinned Focal ARM64 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          python3 -m py_compile investigations/focal_build_and_rollback.py
+          python3 investigations/focal_build_and_rollback.py --output reports/focal-arm64-rollback.json
+      - name: Print audit details
+        if: always()
+        shell: bash
+        run: |
+          if [ -f reports/focal-arm64-rollback.json ]; then
+            cat reports/focal-arm64-rollback.json
+          fi
+      - name: Upload diagnostic JSON only - never downloaded binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php82-focal-arm64-rollback-audit
+          path: reports/focal-arm64-rollback.json
+          retention-days: 14
+          if-no-files-found: error
