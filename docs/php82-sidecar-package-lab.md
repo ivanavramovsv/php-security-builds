@@ -119,3 +119,25 @@ DEPLOYMENT_READY=NO.
 - Инсталиране, PHP/Imagick runtime проверки и чисто премахване на лабораторния пакет от временния контейнер: PASS.
 
 **Извод:** пакетиращата стъпка вече е детерминистична за едно и също staging дърво. Това НЕ е доказателство за независима възпроизводимост на целия компилационен процес. Същият Git SHA е пуснат повторно в чист GitHub Actions run attempt за сравнение.
+
+
+### Етап 1M — независимо повторно компилиране от същия Git SHA
+
+[GitHub Actions run 40113898802](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40113898802) беше повторен от същия source commit `677205994207a3f0e5b34b2d9190b807bd6aa416`; двата run attempts са SUCCESS.
+
+| Контролна стойност | Attempt 1 | Attempt 2 |
+|---|---|---|
+| .deb размер | 25 974 076 | 25 974 316 |
+| .deb SHA-256 | `feabdc463ed1035e5457b46a9cfdde632e9862a541beebe4568817aef97d747f` | `bac830fb83d51305d01602d5d4a53b4fbbcb01ad033029f23e7c990db69beda7` |
+| Payload content-manifest SHA-256 | `8af9a86975661955db26b067ac4f50a068c98535a77b4bf6fe7584551e8b1755` | `877b2cf34e0684e796af19c831ec0f35c9702cc6764b9d0d0b2906c7a4534da6` |
+| PHP CLI SHA-256 | `281edf61f112c8bea303e5ff24bf051b8d1ab97f5b463f58fbf977c58854ba6b` | `301fc4572a73045f8282abe8fece26e8ae7ecfa2bfe90e0e2bdbca732ca0882c` |
+| Imagick 3.7.0 SHA-256 | `34bcd4f0c1b56b402cd3ddade78b7c62d502ddeae0175090b2b35338b04504cb` | `34bcd4f0c1b56b402cd3ddade78b7c62d502ddeae0175090b2b35338b04504cb` |
+| DEBIAN/control SHA-256 | `5fbed15770747e66fc1e81cb2f30051a88c13aa34e0892d2b90e0ec6a9c25ebb` | `5fbed15770747e66fc1e81cb2f30051a88c13aa34e0892d2b90e0ec6a9c25ebb` |
+
+**Извод:** две архивни сглобявания на един staging tree са еднакви и в двата attempts (`SAME_STAGE_DEB_REASSEMBLY=PASS`). Истинските независими компилации **не** са byte-for-byte възпроизводими: PHP CLI бинарният файл и пълният payload имат различни SHA-256, докато Imagick SO и control са идентични.
+
+Фиксираният `SOURCE_DATE_EPOCH` е приложен поне към видимия build timestamp: PHP-FPM и в двете изпълнения показва `(built: Sep 21 2026 14:13:20)`.
+
+Това НЕ доказва, че различието е само в PHP CLI — може да има други различаващи се файлове. Без запазени binary/diff отчети не можем да посочим причината на ниво ELF секции. Бъдещият CI анализ трябва да сравни ELF build ID, секционни digest-и, compiler/linker flags и други инсталирани файлове. Разликите не оправдават публикуване на пакет за production.
+
+**STATUS=NON_REPRODUCIBLE_INDEPENDENT_PHP_BUILD; DEPLOYMENT_READY=NO.**
