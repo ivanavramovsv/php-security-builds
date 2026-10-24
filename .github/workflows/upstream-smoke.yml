@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - setup/arm64-source-audit
+    paths:
+      - '.github/workflows/upstream-smoke.yml'
   workflow_dispatch:
 
 permissions:
