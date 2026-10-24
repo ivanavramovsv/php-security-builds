@@ -64,6 +64,11 @@ def main():
         "architecture": platform.machine(),
         "all_dependencies_count": 0,
         "selected_native_dependencies": [],
+        "selected_matching_versions": 0,
+        "selected_different_versions": 0,
+        "historical_ppa_or_backport_dependencies": [],
+        "unavailable_in_stock_focal": [],
+        "reproducibility_gate": "BLOCKED_NO_ORIGINAL_PPA_SOURCE_OR_DEPENDENCY_SNAPSHOT",
         "warnings": [],
         "state": "INCOMPLETE",
         "build_performed": False,
@@ -102,6 +107,22 @@ def main():
             })
         if not report["selected_native_dependencies"]:
             raise RuntimeError("No matching ABI-sensitive build dependencies")
+        report["selected_matching_versions"] = sum(
+            1 for item in report["selected_native_dependencies"] if item["versions_identical"]
+        )
+        report["selected_different_versions"] = (
+            len(report["selected_native_dependencies"]) - report["selected_matching_versions"]
+        )
+        report["historical_ppa_or_backport_dependencies"] = [
+            item["package"] for item in report["selected_native_dependencies"]
+            if "deb.sury.org" in item["historical_version"]
+            or "bpo20.04" in item["historical_version"]
+        ]
+        report["unavailable_in_stock_focal"] = [
+            item["package"] for item in report["selected_native_dependencies"]
+            if item["focal_current_candidate_without_ppa"] in (None, "(none)")
+        ]
+
         report["state"] = "HISTORICAL_BUILD_DEPENDENCIES_AUDITED_NO_BUILD"
         report["warnings"].append(
             "Current APT candidate versions cannot recreate the 2024 dependency snapshot. "
