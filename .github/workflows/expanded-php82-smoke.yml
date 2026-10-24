@@ -1,0 +1,96 @@
+name: PHP 8.2.35 expanded extension smoke on Focal ARM64
+
+on:
+  push:
+    branches:
+      - setup/arm64-source-audit
+    paths:
+      - '.github/workflows/expanded-php82-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: php82-extended-smoke
+  cancel-in-progress: true
+
+jobs:
+  standalone-extensions:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+    steps:
+      - name: Install build dependencies in disposable Ubuntu 20.04 ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            ca-certificates curl xz-utils pkg-config autoconf make gcc g++ \
+            libxml2-dev libonig-dev libicu-dev libssl-dev libcurl4-openssl-dev \
+            libzip-dev libpng-dev libjpeg-dev libfreetype6-dev zlib1g-dev
+      - name: Verify official PHP source and unpack outside package paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/php-extended reports
+          curl --fail --location --silent --show-error --retry 2 \
+            https://www.php.net/distributions/php-8.2.35.tar.xz \
+            -o /tmp/php-extended/php-8.2.35.tar.xz
+          echo '5737b98601fe5ab1b8c5db0c82ed3158acb9283ed3081ffe2faffb9ac81455e6  /tmp/php-extended/php-8.2.35.tar.xz' | sha256sum --check
+          tar --no-same-owner -xJf /tmp/php-extended/php-8.2.35.tar.xz -C /tmp/php-extended
+      - name: Compile extended PHP 8.2 CLI and FPM, no installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/php-extended/php-8.2.35
+          ./configure \
+            --disable-all --enable-cli --enable-fpm --disable-cgi --without-pear \
+            --enable-pdo --with-pdo-mysql=mysqlnd --with-mysqli \
+            --enable-mbstring --enable-intl --with-openssl --with-curl \
+            --with-zip --enable-gd --with-freetype --with-jpeg \
+            --enable-opcache --with-zlib --enable-dom --enable-xml \
+            --enable-simplexml > /tmp/php-extended/configure.log 2>&1
+          make -j2 > /tmp/php-extended/make.log 2>&1
+          sapi/cli/php -n -r '
+            if (PHP_VERSION !== "8.2.35") { fwrite(STDERR, "WRONG_VERSION\n"); exit(3); }
+            $required = ["PDO", "pdo_mysql", "mysqli", "mbstring", "intl", "openssl", "curl", "zip", "gd", "dom", "SimpleXML"];
+            foreach ($required as $ext) {
+              if (!extension_loaded($ext)) { fwrite(STDERR, "MISSING_EXTENSION=$ext\n"); exit(4); }
+            }
+            echo "EXTENDED_MODULES_PASS=".implode(",", $required)."\n";
+          ' | tee /tmp/php-extended/test.log
+          sapi/cli/php -v | tee /tmp/php-extended/cli-version.txt
+          sapi/fpm/php-fpm -v | tee /tmp/php-extended/fpm-version.txt
+          {
+            echo 'PLATFORM=Ubuntu 20.04 ARM64'
+            echo 'SOURCE=php-8.2.35.tar.xz'
+            echo 'SOURCE_SHA256=5737b98601fe5ab1b8c5db0c82ed3158acb9283ed3081ffe2faffb9ac81455e6'
+            cat /tmp/php-extended/test.log
+            cat /tmp/php-extended/cli-version.txt
+            cat /tmp/php-extended/fpm-version.txt
+            echo 'DEBIAN_PACKAGE_CREATED=false'
+            echo 'ALL_ORIGINAL_PPA_DEPENDENCIES_REPRODUCED=false'
+            echo 'EXTERNAL_IMAGICK_TESTED=false'
+            echo 'ORACLE_VPS_MODIFIED=false'
+            echo 'PRODUCTION_COMPATIBILITY_PROVEN=false'
+          } > "$GITHUB_WORKSPACE/reports/expanded-extensions.txt"
+      - name: Print configure and compile diagnostics on failure only
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f /tmp/php-extended/configure.log ]; then tail -80 /tmp/php-extended/configure.log; fi
+          if [ -f /tmp/php-extended/make.log ]; then tail -100 /tmp/php-extended/make.log; fi
+      - name: Upload text report only - never .deb or executables
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php82-focal-arm64-expanded-extensions
+          path: reports/expanded-extensions.txt
+          retention-days: 14
+          if-no-files-found: warn
