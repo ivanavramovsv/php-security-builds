@@ -157,7 +157,7 @@ jobs:
           test "$(dpkg-deb -f "$DEB" Architecture)" = 'arm64'
           dpkg-deb --contents "$DEB" > /tmp/sidecar-build/package-contents.txt
           awk '{print $NF}' /tmp/sidecar-build/package-contents.txt \
-            | grep -Ev '^\./(opt(/php82-arm64-sidecar-lab(/8[.]2[.]35(/.*)?)?)?)?$' \
+            | grep -Ev '^\./$|^\./opt(/php82-arm64-sidecar-lab(/8[.]2[.]35(/.*)?)?)?/?$' \
             > /tmp/sidecar-build/unexpected-paths.txt || true
           test ! -s /tmp/sidecar-build/unexpected-paths.txt
           dpkg-deb --ctrl-tarfile "$DEB" | tar -tf - > /tmp/sidecar-build/control-members.txt
@@ -192,7 +192,7 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          for f in /tmp/sidecar-build/{php-configure,php-make,php-install,imagick-phpize,imagick-configure,imagick-make,imagick-install,shlibdeps,unexpected-paths}.log; do
+          for f in /tmp/sidecar-build/{php-configure,php-make,php-install,imagick-phpize,imagick-configure,imagick-make,imagick-install,shlibdeps}.log /tmp/sidecar-build/unexpected-paths.txt; do
             if [ -f "$f" ]; then
               echo "===== $(basename "$f") ====="
               tail -35 "$f"
