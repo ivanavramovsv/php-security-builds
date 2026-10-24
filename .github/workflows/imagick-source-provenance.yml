@@ -1,0 +1,69 @@
+name: Imagick 3.8.1 PECL source provenance (ARM64)
+
+on:
+  push:
+    branches:
+      - setup/arm64-source-audit
+    paths:
+      - '.github/workflows/imagick-source-provenance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: imagick-source-provenance
+  cancel-in-progress: true
+
+jobs:
+  imagick-source:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+    steps:
+      - name: Install temporary HTTPS and tar tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates curl tar gzip grep coreutils
+      - name: Inspect exact official PECL archive; never execute it
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pecl-imagick reports
+          curl --fail --location --silent --show-error --retry 2 \
+            https://pecl.php.net/get/imagick-3.8.1.tgz \
+            --output /tmp/pecl-imagick/imagick-3.8.1.tgz
+          BYTES=$(stat -c %s /tmp/pecl-imagick/imagick-3.8.1.tgz)
+          test "$BYTES" -gt 250000
+          test "$BYTES" -lt 1000000
+          tar -tzf /tmp/pecl-imagick/imagick-3.8.1.tgz > /tmp/pecl-imagick/filenames.txt
+          grep -Fx 'package.xml' /tmp/pecl-imagick/filenames.txt
+          tar -xOzf /tmp/pecl-imagick/imagick-3.8.1.tgz package.xml \
+            > /tmp/pecl-imagick/package.xml
+          grep -Fq '<name>imagick</name>' /tmp/pecl-imagick/package.xml
+          grep -Fq '<release>3.8.1</release>' /tmp/pecl-imagick/package.xml
+          DIGEST=$(sha256sum /tmp/pecl-imagick/imagick-3.8.1.tgz | cut -d ' ' -f1)
+          {
+            echo 'SOURCE=PECL official imagick-3.8.1.tgz'
+            echo "BYTES=$BYTES"
+            echo "SHA256=$DIGEST"
+            echo 'PACKAGE_NAME=imagick'
+            echo 'VERSION=3.8.1'
+            echo 'SOURCE_APPROVAL=NOT_YET_PINNED_FOR_BUILD'
+            echo 'PRODUCTION_MODIFIED=false'
+          } > reports/imagick-source.txt
+          cat reports/imagick-source.txt
+      - name: Upload checksum evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagick-381-source-manifest
+          path: reports/imagick-source.txt
+          if-no-files-found: error
+          retention-days: 14
