@@ -104,3 +104,18 @@ DEPLOYMENT_READY=NO.
 Стандартът SOURCE_DATE_EPOCH е документиран в https://reproducible-builds.org/specs/source-date-epoch/ .
 
 Продукционна готовност остава **BLOCKED** независимо от резултата на този тест.
+
+
+### Етап 1M — първи резултат след контролиране на метаданните
+
+[Run 40113898802 / attempt 1](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40113898802) — PASS:
+
+- Еднакъв `SOURCE_DATE_EPOCH=1790000000`, UTC и нормализирани mtime стойности на staging файловете.
+- Две самостоятелни сглобявания на `.deb` от един и същ файлов tree са byte-for-byte идентични (`SAME_STAGE_DEB_REASSEMBLY=PASS`).
+- Размер на пакета: 25 974 076 байта; SHA-256 `feabdc463ed1035e5457b46a9cfdde632e9862a541beebe4568817aef97d747f`.
+- Отпечатък на съдържанието на пакета: `8af9a86975661955db26b067ac4f50a068c98535a77b4bf6fe7584551e8b1755`.
+- PHP CLI SHA-256: `281edf61f112c8bea303e5ff24bf051b8d1ab97f5b463f58fbf977c58854ba6b`.
+- Imagick SO SHA-256: `34bcd4f0c1b56b402cd3ddade78b7c62d502ddeae0175090b2b35338b04504cb`.
+- Инсталиране, PHP/Imagick runtime проверки и чисто премахване на лабораторния пакет от временния контейнер: PASS.
+
+**Извод:** пакетиращата стъпка вече е детерминистична за едно и също staging дърво. Това НЕ е доказателство за независима възпроизводимост на целия компилационен процес. Същият Git SHA е пуснат повторно в чист GitHub Actions run attempt за сравнение.
