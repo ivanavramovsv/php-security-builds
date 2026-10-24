@@ -114,6 +114,8 @@ def main():
         report["original_source_recovered"] = all(v["sha256_verified"] for v in report["files"].values())
         if report["original_source_recovered"]:
             report["state"] = "EXACT_FILES_HASH_VERIFIED_IN_EPHEMERAL_RUNNER"
+        elif any(item["sha256_verified"] for item in report["files"].values()):
+            report["state"] = "PARTIAL_EXACT_ARCHIVE_RECOVERY_PACKAGING_BLOCKED"
     except Exception as exc:
         report["errors"].append(str(exc)[:220])
         report["state"] = "INCOMPLETE"
