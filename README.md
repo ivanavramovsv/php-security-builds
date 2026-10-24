@@ -121,3 +121,19 @@ GitHub Actions изтегля само изходни/диагностични �
 Нито минималното upstream компилиране, нито успешните изследователски задачи отменят `SOURCE_GATE=BLOCKED` на оригиналните PPA архиви.
 
 С цел пестене на GitHub runner ресурси, build workflow се задейства от промени в собствения workflow (или ръчно), а диагностичният изследователски workflow — само при промяна в неговите скриптове или конфигурация.
+
+
+## Етап 1F — оригинална PHP-FPM конфигурация и реален rollback
+
+[Read-only GitHub Actions audit](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40084580327) — PASS.
+
+- Оригиналният ARM64 build log от 27.09.2024, както и .changes и .buildinfo, са сверени с предварително фиксирани SHA-256 отпечатъци.
+- Автоматично разпознати оригинални build цели: apache2-build, cgi-build, cli-build, embed-build, ext-build, fpm-build и phpdbg-build.
+- За fpm-build журналът потвърждава --enable-fpm, /etc/php/8.2/fpm, /etc/php/8.2/fpm/conf.d и стандартна systemd/FPM интеграция.
+- Историческият debian/rules от Debian PHP Team е потвърден по SHA-256 и е направено синтактично сравнение с build log. Синтактичните различия НЕ доказват ABI несъвместимост и този код НЕ е оригиналният Ubuntu PPA източник.
+- Оригиналният ARM64 .changes манифест съдържа SHA-256 на точното множество .deb пакети. При проверка на седем от най-важните (FPM, CLI, Common, OPcache, MySQL, Mbstring, XML) официалните исторически адреси в Launchpad и PPA връщат HTTP 404: **0 от 7 възстановени оригинални пакета**.
+- Без подписан или друг проверен архив за оригиналните .deb и без проверен пълен план за възстановяване не е разрешена продукционна инсталация.
+
+Новите проверяващи скриптове се намират в investigations/, а конфигурацията е .github/workflows/repro-inspection.yml. Изпълняват се само при промени в съответните файлове или ръчно, без връзка към Oracle VPS.
+
+Подробните условия за бъдещо внедряване са в [docs/deployment-acceptance-gates.md](docs/deployment-acceptance-gates.md).
