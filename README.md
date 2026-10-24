@@ -79,3 +79,16 @@
 Детайлно описание: [docs/php82-sidecar-package-lab.md](docs/php82-sidecar-package-lab.md).
 
 **DEPLOYMENT_READY=NO.**
+
+
+## Етап 1L — лабораторен install/remove и проверка на обратимостта
+
+[GitHub Actions run #40110666079](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40110666079) — PASS за инсталиране, dpkg проверка, зареждане на PHP 8.2.35 и Imagick 3.7.0, PNG roundtrip, премахване и идентичен пакетен инвентар преди и след теста. Всичко се изпълнява само във временния Ubuntu 20.04 ARM64 GitHub контейнер.
+
+**Тестът е на отделния лабораторен sidecar пакет, а не на истинско обновяване на Sury PHP пакети.** Няма инсталация, рестарт или други промени върху Oracle VPS.
+
+Двата успешни .deb build-а имат различни SHA-256 хешове и размери. Независима byte-for-byte възпроизводимост не е доказана и става отделен release gate. Историческият оригинален пакетен rollback остава недостъпен.
+
+Подробности: [docs/php82-sidecar-package-lab.md](docs/php82-sidecar-package-lab.md).
+
+**DEPLOYMENT_READY=NO.**
