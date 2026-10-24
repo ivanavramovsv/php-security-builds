@@ -72,7 +72,7 @@ jobs:
             test -x "$PHP_PREFIX/$exe" || { echo "MISSING_EXECUTABLE=$exe"; exit 31; }
             echo "EXECUTABLE_OK=$exe"
           done
-          PHP_API=$("$PHP_PREFIX/bin/php-config" --phpapi)
+          PHP_API=$("$PHP_PREFIX/bin/phpize" -v | sed -n 's/^PHP Api Version:[[:space:]]*//p')
           echo "ISOLATED_PHP_API=$PHP_API"
           test "$PHP_API" = '20220829' || { echo "PHP_API_MISMATCH"; exit 32; }
           "$PHP_PREFIX/bin/php" -n -r 'if (PHP_VERSION !== "8.2.35") exit(5);'
@@ -144,7 +144,7 @@ jobs:
             echo '===== ISOLATED PHP INSTALL FILES ====='
             find "$PHP_PREFIX" -maxdepth 2 -type f -name '*php*' -print | head -40
             if [ -x "$PHP_PREFIX/bin/php-config" ]; then
-              "$PHP_PREFIX/bin/php-config" --phpapi || true
+              "$PHP_PREFIX/bin/phpize" -v || true
               "$PHP_PREFIX/bin/php-config" --version || true
             fi
           fi
