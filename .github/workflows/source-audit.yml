@@ -6,6 +6,10 @@ on:
       - setup/arm64-source-audit
   workflow_dispatch:
 
+concurrency:
+  group: php-security-audit-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
