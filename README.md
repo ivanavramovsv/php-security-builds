@@ -92,3 +92,14 @@
 Подробности: [docs/php82-sidecar-package-lab.md](docs/php82-sidecar-package-lab.md).
 
 **DEPLOYMENT_READY=NO.**
+
+
+## Етап 1M — фиксирани метаданни и повторно сглобяване на Debian архива
+
+[GitHub Actions #40113898802, attempt 1](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40113898802) — PASS за две byte-for-byte идентични сглобявания на един и същ staged payload: `SAME_STAGE_DEB_REASSEMBLY=PASS`.
+
+Пакетиращият CI използва фиксирана UTC среда и `SOURCE_DATE_EPOCH=1790000000` (само лабораторен timestamp), нормализира времената на файловете в staging директорията и записва SHA-256 на пакет, payload, PHP CLI, Imagick и control файл.
+
+**Граница:** този PASS доказва само, че архивната операция е детерминистична за един набор от идентични входове. Двата предишни независими `.deb` build-а се различаваха. Затова е нужен повторен CI build при **същия Git SHA** и сравнение на получените binary/payload/deb хешове, преди да говорим за независима възпроизводимост.
+
+Реалният Oracle VPS не е достъпван, няма публикувани `.deb`, няма диагностични скриптове в репото и няма разрешение за продукционен deployment.
