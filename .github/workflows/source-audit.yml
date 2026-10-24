@@ -171,3 +171,42 @@ jobs:
           path: reports/build-evidence.json
           if-no-files-found: error
           retention-days: 14
+
+  exact-ppa-source-archive-probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+    steps:
+      - name: Install isolated HTTPS and Python requirements
+        run: |
+          set -eu
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates python3
+      - name: Check out read-only scripts
+        uses: actions/checkout@v4
+      - name: Probe pinned Launchpad original source files without installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          python3 -m py_compile scripts/recover_original_source.py scripts/build_evidence_audit.py
+          python3 scripts/recover_original_source.py --output reports/source-recovery.json
+      - name: Print verification evidence
+        if: always()
+        shell: bash
+        run: |
+          if [ -f reports/source-recovery.json ]; then
+            cat reports/source-recovery.json
+          fi
+      - name: Upload report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php82-exact-source-archive-probe
+          path: reports/source-recovery.json
+          if-no-files-found: error
+          retention-days: 14
