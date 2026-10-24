@@ -15,6 +15,7 @@
 | .github/workflows/imagick-source-provenance.yml | Проверка на официалните PECL Imagick 3.7.0 и 3.8.1 source архиви | PASS |
 | .github/workflows/imagick-php82-smoke.yml | Компилиране и PNG roundtrip с Imagick 3.8.1 срещу PHP 8.2.35 | PASS |
 | .github/workflows/imagick-370-php82-smoke.yml | Компилиране и PNG roundtrip с продукционната версия Imagick 3.7.0 срещу PHP 8.2.35 | PASS |
+| .github/workflows/php82-sidecar-deb-lab.yml | Отделен PHP 8.2.35 + Imagick 3.7.0 Debian пакет, структурен анализ и проверка чрез разархивиране; без инсталиране | PASS |
 
 Успешни изпълнения: [минимален build](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40083395805), [разширен build](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40084823661), [Imagick проверка на източник](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40086739891), [Imagick build и тест](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40087383864).
 
@@ -59,3 +60,22 @@
 **Ограничение:** тестът използва ново компилиран Imagick 3.7.0; той **не** доказва, че старият продукционен `imagick.so` ще се зареди в новия PHP, нито че пълното Debian пакетиране е еквивалентно. Изградените файлове са останали само във временния CI контейнер.
 
 **DEPLOYMENT_READY=NO:** историческите PPA Debian sources, пакетните ABI проверки, HestiaCP интеграционните тестове и надежден rollback все още са блокери. На Oracle VPS няма извършени промени.
+
+
+## Етап 1K — първо успешно лабораторно Debian пакетиране (24 октомври 2026)
+
+[GitHub Actions #40108957712](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40108957712): **PASS**.
+
+- Проверени по SHA-256 официален PHP 8.2.35 и PECL Imagick 3.7.0; Ubuntu 20.04 ARM64.
+- Компилирани PHP CLI, PHP-FPM, 11 вградени разширения и външно Imagick 3.7.0 с PHP API 20220829.
+- PHP и Imagick са разположени само в отделния CI път `/opt/php82-arm64-sidecar-lab/8.2.35/`.
+- Създаден пакет `php82-arm64-sidecar-lab`, версия `8.2.35-0lab1`, ARM64, **25 979 976 байта**.
+- SHA-256 на конкретния CI `.deb` артефакт: `24f81aea72d248ec548bcc49d2da8b92855e9be30dc4fe9e0a5c48a0f82f5af8`; това **не е доказателство за възпроизводим байт-по-байт build**.
+- `dpkg-shlibdeps` извлече динамичните зависимости, включително `libc6`, `libicu66`, `libssl1.1`, `libmagickwand-6.q16-6` и `libmagickcore-6.q16-6` от Ubuntu 20.04.
+- `dpkg-deb --build`, информация за package/version/arch, всички вътрешни пътища, липса на maintainer scripts, извличане с `dpkg-deb -x` и двоично сравнение на `php`/`imagick.so` — **PASS**.
+
+**Не е публикуван или инсталиран `.deb`.** Изтрит е с временната CI среда. Не е предназначен за продукционна инсталация; не замества оригиналните Sury пакети и няма FPM service/pool интеграция. Независима проверка на действителните динамични библиотеки на Oracle VPS и наличието на оригиналните rollback `.deb` все още е нужна.
+
+Детайлно описание: [docs/php82-sidecar-package-lab.md](docs/php82-sidecar-package-lab.md).
+
+**DEPLOYMENT_READY=NO.**
