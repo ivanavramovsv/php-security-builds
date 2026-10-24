@@ -56,3 +56,40 @@ jobs:
           path: reports/
           if-no-files-found: warn
           retention-days: 14
+
+  historical-packaging-audit:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+    steps:
+      - name: Install read-only source audit dependencies
+        run: |
+          set -eu
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates git python3
+      - name: Check out audit scripts
+        uses: actions/checkout@v4
+      - name: Verify historical Debian PHP Team tags and packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          python3 -m py_compile scripts/salsa_history_audit.py
+          python3 scripts/salsa_history_audit.py --output reports/salsa-history.json
+      - name: Print complete audit result
+        if: always()
+        shell: bash
+        run: |
+          if [ -f reports/salsa-history.json ]; then cat reports/salsa-history.json; fi
+      - name: Upload diagnostic evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php82-historical-packaging-audit
+          path: reports/salsa-history.json
+          if-no-files-found: warn
+          retention-days: 14
