@@ -1,0 +1,54 @@
+name: PHP source provenance audit (ARM64 / Ubuntu 20.04)
+
+on:
+  push:
+    branches:
+      - setup/arm64-source-audit
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-audit:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+    steps:
+      - name: Install audit utilities in disposable container
+        run: |
+          set -eu
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates curl python3 xz-utils file
+      - name: Check out source audit scripts
+        uses: actions/checkout@v4
+      - name: Verify ARM64, Focal, and exact historical package source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          python3 -m py_compile scripts/source_audit.py
+          python3 scripts/source_audit.py --output reports/source-audit.json
+      - name: Check official PHP 8.2.35 source archive
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --retry 2 \
+            https://www.php.net/distributions/php-8.2.35.tar.xz \
+            --output /tmp/php-8.2.35.tar.xz
+          echo '5737b98601fe5ab1b8c5db0c82ed3158acb9283ed3081ffe2faffb9ac81455e6  /tmp/php-8.2.35.tar.xz' | sha256sum --check
+          file /tmp/php-8.2.35.tar.xz
+          echo 'UPSTREAM_SHA256=PASS' > reports/upstream-check.txt
+      - name: Upload diagnostic report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php82-source-audit
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14
