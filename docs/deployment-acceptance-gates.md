@@ -46,3 +46,13 @@
 Това доказва възможност за изолирано компилиране и изпълнение със съответните Focal библиотеки. Не доказва идентично Debian пакетиране, HestiaCP интеграция, правилна конфигурация на продукционните сайтове, външен Imagick или надеждно пакетно възстановяване.
 
 Готовността за продукционна инсталация остава BLOCKED — 0/7 оригинални ARM64 .deb за rollback и липсващ исторически PPA debian.tar.xz.
+
+## Етап 1H: PECL Imagick smoke evidence
+
+В изолиран Ubuntu 20.04 ARM64 GitHub Actions контейнер изградихме PHP 8.2.35 (CLI/FPM) и PECL Imagick 3.8.1 във временен prefix; тестовете за зареждане през CLI/FPM и обработка на малко PNG са PASS.
+
+Пиннато изображение на изходния код: PECL imagick-3.8.1.tgz, SHA-256 3a3587c0a524c17d0dad9673a160b90cd776e836838474e173b549ed864352ee. Изолираният phpize потвърждава PHP API 20220829.
+
+[Source SHA256 evidence](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40086739891) · [Imagick build and PNG roundtrip](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40087383864)
+
+Важно: успешният Imagick 3.8.1 тест не означава, че оригиналният imagick.so от продукционния сървър работи с новите бинарни файлове или че новото разширение е безопасен заместител в неговата система. Пълната проверка на HestiaCP, ABI и възстановяването остава BLOCKED.
