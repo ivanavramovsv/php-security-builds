@@ -37,3 +37,12 @@
 Текущата временна настройка session.upload_progress.enabled=0 не замества действителните PHP поправки.
 
 Изследването на пълно Ubuntu надграждане и Oracle Always Free последствията остава отделна операция.
+
+
+## Изпълнен разширен upstream тест — 24 октомври 2026
+
+[PASS на Ubuntu 20.04 ARM64, PHP 8.2.35](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40084823661): CLI, FPM и 11 разширения PDO, pdo_mysql, mysqli, mbstring, intl, openssl, curl, zip, gd, dom, SimpleXML.
+
+Това доказва възможност за изолирано компилиране и изпълнение със съответните Focal библиотеки. Не доказва идентично Debian пакетиране, HestiaCP интеграция, правилна конфигурация на продукционните сайтове, външен Imagick или надеждно пакетно възстановяване.
+
+Готовността за продукционна инсталация остава BLOCKED — 0/7 оригинални ARM64 .deb за rollback и липсващ исторически PPA debian.tar.xz.
