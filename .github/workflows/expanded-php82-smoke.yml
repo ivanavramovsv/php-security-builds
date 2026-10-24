@@ -54,7 +54,7 @@ jobs:
             --enable-pdo --with-pdo-mysql=mysqlnd --with-mysqli \
             --enable-mbstring --enable-intl --with-openssl --with-curl \
             --with-zip --enable-gd --with-freetype --with-jpeg \
-            --enable-opcache --with-zlib --enable-dom --enable-xml \
+            --enable-opcache --with-zlib --with-libxml --enable-dom --enable-xml \
             --enable-simplexml > /tmp/php-extended/configure.log 2>&1
           make -j2 > /tmp/php-extended/make.log 2>&1
           sapi/cli/php -n -r '
