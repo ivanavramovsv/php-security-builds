@@ -24,6 +24,9 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
       LC_ALL: C
+      TZ: UTC
+      # Fixed lab epoch: this is not a release provenance timestamp.
+      SOURCE_DATE_EPOCH: '1790000000'
       PHP_PREFIX: /opt/php82-arm64-sidecar-lab/8.2.35
     steps:
       - name: Install Focal build dependencies in disposable container
@@ -151,7 +154,27 @@ jobs:
            It has no configuration or service activation scripts.
           CONTROL
           test "$(find "$PKG/DEBIAN" -type f | wc -l)" -eq 1
+          # Normalization is strictly limited to the staged package tree.
+          # This removes wall-clock mtimes from tar members without changing contents.
+          test "$SOURCE_DATE_EPOCH" = '1790000000'
+          find "$PKG" -depth -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+          PAYLOAD_FINGERPRINT=$(
+            find "$PKG$PHP_PREFIX" -type f -print0 |
+              LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1
+          )
+          CONTROL_FINGERPRINT=$(sha256sum "$PKG/DEBIAN/control" | cut -d ' ' -f1)
+          PHP_BINARY_SHA256=$(sha256sum "$PHP_PREFIX/bin/php" | cut -d ' ' -f1)
+          IMAGICK_BINARY_SHA256=$(sha256sum "$EXT_FILE" | cut -d ' ' -f1)
           dpkg-deb --build --root-owner-group "$PKG" "$DEB"
+          # Same staged inputs, independently assembled twice, must be identical.
+          SECOND_DEB=/tmp/sidecar-build/php82-arm64-sidecar-lab-reassembly.deb
+          dpkg-deb --build --root-owner-group "$PKG" "$SECOND_DEB"
+          if ! cmp -s "$DEB" "$SECOND_DEB"; then
+            echo "SAME_STAGE_DEB_REASSEMBLY=FAIL"
+            sha256sum "$DEB" "$SECOND_DEB"
+            exit 57
+          fi
+          echo "SAME_STAGE_DEB_REASSEMBLY=PASS"
           test "$(dpkg-deb -f "$DEB" Package)" = 'php82-arm64-sidecar-lab'
           test "$(dpkg-deb -f "$DEB" Version)" = '8.2.35-0lab1'
           test "$(dpkg-deb -f "$DEB" Architecture)" = 'arm64'
@@ -180,6 +203,13 @@ jobs:
             echo "SHLIBS_DEPENDS=$DEPENDS"
             echo "DEB_BYTES=$(stat -c %s "$DEB")"
             echo "DEB_SHA256=$(sha256sum "$DEB" | cut -d ' ' -f1)"
+            echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+            echo "PAYLOAD_CONTENT_MANIFEST_SHA256=$PAYLOAD_FINGERPRINT"
+            echo "CONTROL_SHA256=$CONTROL_FINGERPRINT"
+            echo "PHP_BIN_SHA256=$PHP_BINARY_SHA256"
+            echo "IMAGICK_SO_SHA256=$IMAGICK_BINARY_SHA256"
+            echo 'SAME_STAGE_DEB_REASSEMBLY=PASS'
+            echo 'CROSS_RUN_BIT_FOR_BIT_REPRODUCIBILITY=NOT_PROVEN'
             echo 'PACKAGE_PUBLISHED=false'
             echo 'PACKAGE_INSTALLED_WITH_DPKG=false'
             echo 'PRODUCTION_COMPATIBILITY_PROVEN=false'
