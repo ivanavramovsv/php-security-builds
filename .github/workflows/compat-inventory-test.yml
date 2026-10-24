@@ -8,6 +8,7 @@ on:
       - '.github/workflows/compat-inventory-test.yml'
       - 'diagnostics/**'
       - 'tests/test_compatibility_inventory.py'
+      - 'tests/run-mocked-inventory.sh'
   workflow_dispatch:
 
 permissions:
@@ -59,3 +60,9 @@ jobs:
           echo 'SANITIZED_INVENTORY_SMOKE=PASS'
           echo 'REAL_ORACLE_SERVER_QUERIED=false'
           echo 'DEPLOYMENT_ALLOWED=false'
+      - name: End-to-end safe output with mocked PHP 8.2 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tests/run-mocked-inventory.sh
+          bash tests/run-mocked-inventory.sh
