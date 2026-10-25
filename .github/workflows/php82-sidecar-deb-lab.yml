@@ -158,6 +158,8 @@ jobs:
           echo 'BINARIES_UPLOADED=false' >> "$OUT"
           echo 'ORACLE_VPS_MODIFIED=false' >> "$OUT"
           echo 'ELF_SECTION_INVENTORY=PASS'
+          # Public CI source binaries only: show checksums, not binary payloads.
+          cat "$OUT"
 
       - name: Construct NON-INSTALLABLE-FOR-PRODUCTION separate-prefix .deb in temporary container
         shell: bash
