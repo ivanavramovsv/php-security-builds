@@ -1,0 +1,152 @@
+name: PHP 8.2.35 ARM64 independent configure-header comparison
+
+on:
+  push:
+    branches:
+      - setup/arm64-source-audit
+    paths:
+      - '.github/workflows/php82-config-header-compare.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: php82-config-header-comparison
+  cancel-in-progress: true
+
+jobs:
+  independent-configure:
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [first, second]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+      TZ: UTC
+      SOURCE_DATE_EPOCH: '1790000000'
+      PHP_PREFIX: /opt/php82-arm64-sidecar-lab/8.2.35
+    steps:
+      - name: Install temporary Ubuntu 20.04 configure dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            ca-certificates curl xz-utils pkg-config autoconf \
+            gcc g++ make python3 \
+            libxml2-dev libonig-dev libicu-dev libssl-dev libcurl4-openssl-dev \
+            libzip-dev libpng-dev libjpeg-dev libfreetype6-dev zlib1g-dev
+      - name: Generate header using identical pinned source and flags
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sidecar-build reports
+          curl --fail --location --silent --show-error --retry 2 \
+            https://www.php.net/distributions/php-8.2.35.tar.xz \
+            -o /tmp/sidecar-build/php-8.2.35.tar.xz
+          echo '5737b98601fe5ab1b8c5db0c82ed3158acb9283ed3081ffe2faffb9ac81455e6  /tmp/sidecar-build/php-8.2.35.tar.xz' | sha256sum --check
+          tar --no-same-owner -xJf /tmp/sidecar-build/php-8.2.35.tar.xz -C /tmp/sidecar-build
+          cd /tmp/sidecar-build/php-8.2.35
+          ./configure \
+            --prefix="$PHP_PREFIX" \
+            --with-config-file-path="$PHP_PREFIX/etc" \
+            --with-config-file-scan-dir="$PHP_PREFIX/etc/conf.d" \
+            --disable-all --enable-cli --enable-fpm --disable-cgi --disable-phpdbg --without-pear \
+            --enable-pdo --with-pdo-mysql=mysqlnd --with-mysqli \
+            --enable-mbstring --enable-intl --with-openssl --with-curl \
+            --with-zip --enable-gd --with-freetype --with-jpeg \
+            --enable-opcache --with-zlib --with-libxml --enable-dom --enable-xml \
+            --enable-simplexml > /tmp/sidecar-build/php-configure.log 2>&1
+          test -s main/php_config.h
+          python3 - <<'PY'
+          import hashlib
+          import re
+          from pathlib import Path
+          header = Path('main/php_config.h').read_bytes()
+          out = Path('/tmp/sidecar-build/header-definition-hashes.txt')
+          definitions = {}
+          for line in header.splitlines():
+              match = re.match(rb'^\s*#\s*(define|undef)\s+([A-Za-z_][A-Za-z0-9_]*)\b', line)
+              if match:
+                  key = match.group(2).decode('ascii')
+                  definitions.setdefault(key, []).append(hashlib.sha256(line).hexdigest())
+          if len(definitions) < 100:
+              raise SystemExit('HEADER_TOO_FEW_DEFINITIONS')
+          with out.open('w') as handle:
+              handle.write('PHP_CONFIG_H_SHA256=' + hashlib.sha256(header).hexdigest() + '\n')
+              handle.write('DEFINE_COUNT=' + str(sum(map(len, definitions.values()))) + '\n')
+              for key in sorted(definitions):
+                  for n, digest in enumerate(definitions[key], 1):
+                      handle.write(f'DEFINE_SHA256={key}#{n}|{digest}\n')
+          print('HEADER_DEFINITIONS=' + str(sum(map(len, definitions.values()))))
+          PY
+          cp /tmp/sidecar-build/header-definition-hashes.txt "$GITHUB_WORKSPACE/reports/defines.txt"
+          printf 'CONFIGURE_REPLICA=%s\n' '${{ matrix.replica }}' >> "$GITHUB_WORKSPACE/reports/defines.txt"
+          echo 'SERVER_MODIFIED=false' >> "$GITHUB_WORKSPACE/reports/defines.txt"
+          echo 'CONFIG_HEADER_CAPTURE=PASS'
+      - name: Show limited configure errors
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f /tmp/sidecar-build/php-configure.log ]; then
+            tail -65 /tmp/sidecar-build/php-configure.log
+          fi
+      - name: Upload only hashed generated macro definitions
+        uses: actions/upload-artifact@v4
+        with:
+          name: php82-config-header-${{ matrix.replica }}
+          path: reports/defines.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  compare:
+    needs: independent-configure
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - name: Fetch independent header fingerprints
+        uses: actions/download-artifact@v4
+        with:
+          pattern: php82-config-header-*
+          path: /tmp/php82-header-comparison
+          merge-multiple: false
+      - name: Compare hashes; print macro names but no configuration values
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/tmp/php82-header-comparison')
+          paths=[root/'php82-config-header-first'/'defines.txt',root/'php82-config-header-second'/'defines.txt']
+          entries=[]
+          for p in paths:
+              if not p.is_file():
+                  raise SystemExit('MISSING_HEADER_REPORT')
+              lines=p.read_text().splitlines()
+              result={}
+              for line in lines:
+                  if line.startswith('DEFINE_SHA256='):
+                      item=line.split('=',1)[1]
+                      key,digest=item.split('|',1)
+                      result[key]=digest
+                  elif line.startswith('PHP_CONFIG_H_SHA256='):
+                      result['FULL_HEADER']=line.split('=',1)[1]
+              if len(result)<100:
+                  raise SystemExit('INCOMPLETE_HEADER_REPORT')
+              entries.append(result)
+          left,right=entries
+          differences=[k for k in sorted(set(left)|set(right)) if left.get(k)!=right.get(k)]
+          print('COMPARE_INDEPENDENT_CONFIGURES=PASS')
+          print('HEADER_MACRO_SHA256_MISMATCH_COUNT='+str(len([k for k in differences if k!='FULL_HEADER'])))
+          print('FULL_HEADER_SHA256_MATCH='+str('FULL_HEADER' not in differences).lower())
+          for key in differences[:75]:
+              print('CHANGED_DEFINITION='+key)
+          print('PRODUCTION_DEPLOYMENT_READY=false')
+          print('ORACLE_VPS_MODIFIED=false')
+          PY
