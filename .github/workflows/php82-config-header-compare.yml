@@ -30,6 +30,9 @@ jobs:
       LC_ALL: C
       TZ: UTC
       SOURCE_DATE_EPOCH: '1790000000'
+      # Fixed values suppress the GitHub host's changing uname metadata; lab only.
+      PHP_UNAME: 'Linux aarch64 reproducible-build-lab'
+      PHP_BUILD_SYSTEM: 'Ubuntu 20.04 ARM64 CI reproducibility laboratory'
       PHP_PREFIX: /opt/php82-arm64-sidecar-lab/8.2.35
     steps:
       - name: Install temporary Ubuntu 20.04 configure dependencies
@@ -149,4 +152,6 @@ jobs:
               print('CHANGED_DEFINITION='+key)
           print('PRODUCTION_DEPLOYMENT_READY=false')
           print('ORACLE_VPS_MODIFIED=false')
+          if differences:
+              raise SystemExit('NONDETERMINISTIC_PHP_CONFIG_HEADER')
           PY
