@@ -1,0 +1,165 @@
+name: Imagick 3.8.1 with PHP 8.2.35 - isolated ARM64 Focal smoke
+
+on:
+  push:
+    branches:
+      - setup/arm64-source-audit
+    paths:
+      - '.github/workflows/imagick-php82-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: imagick-php82-arm64-smoke
+  cancel-in-progress: true
+
+jobs:
+  build-and-load-imagick:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+      PHP_PREFIX: /tmp/php82-imagick-isolated
+    steps:
+      - name: Install development tools in disposable ARM64 Focal container
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            ca-certificates curl xz-utils tar gzip coreutils autoconf \
+            make gcc g++ pkg-config libtool libxml2-dev libmagickwand-dev
+
+      - name: Verify pinned official PHP and PECL Imagick source archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/imagick-smoke reports
+          curl --fail --location --silent --show-error --retry 2 \
+            https://www.php.net/distributions/php-8.2.35.tar.xz \
+            -o /tmp/imagick-smoke/php-8.2.35.tar.xz
+          echo '5737b98601fe5ab1b8c5db0c82ed3158acb9283ed3081ffe2faffb9ac81455e6  /tmp/imagick-smoke/php-8.2.35.tar.xz' \
+            | sha256sum --check
+          curl --fail --location --silent --show-error --retry 2 \
+            https://pecl.php.net/get/imagick-3.8.1.tgz \
+            -o /tmp/imagick-smoke/imagick-3.8.1.tgz
+          echo '3a3587c0a524c17d0dad9673a160b90cd776e836838474e173b549ed864352ee  /tmp/imagick-smoke/imagick-3.8.1.tgz' \
+            | sha256sum --check
+          tar --no-same-owner -xJf /tmp/imagick-smoke/php-8.2.35.tar.xz -C /tmp/imagick-smoke
+          tar --no-same-owner -xzf /tmp/imagick-smoke/imagick-3.8.1.tgz -C /tmp/imagick-smoke
+          test -f /tmp/imagick-smoke/imagick-3.8.1/config.m4
+
+      - name: Compile isolated PHP CLI, FPM and phpize toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/imagick-smoke/php-8.2.35
+          ./configure \
+            --prefix="$PHP_PREFIX" \
+            --with-config-file-path="$PHP_PREFIX/etc" \
+            --with-config-file-scan-dir="$PHP_PREFIX/etc/conf.d" \
+            --disable-all --enable-cli --enable-fpm --disable-cgi --disable-phpdbg --without-pear \
+            > /tmp/imagick-smoke/php-configure.log 2>&1
+          make -j2 > /tmp/imagick-smoke/php-make.log 2>&1
+          make install > /tmp/imagick-smoke/php-install.log 2>&1
+          echo "ISOLATED_INSTALL_PREFIX=$PHP_PREFIX"
+          for exe in bin/php bin/phpize bin/php-config sbin/php-fpm; do
+            test -x "$PHP_PREFIX/$exe" || { echo "MISSING_EXECUTABLE=$exe"; exit 31; }
+            echo "EXECUTABLE_OK=$exe"
+          done
+          PHP_API=$("$PHP_PREFIX/bin/phpize" -v | sed -n 's/^PHP Api Version:[[:space:]]*//p')
+          echo "ISOLATED_PHP_API=$PHP_API"
+          test "$PHP_API" = '20220829' || { echo "PHP_API_MISMATCH"; exit 32; }
+          "$PHP_PREFIX/bin/php" -n -r 'if (PHP_VERSION !== "8.2.35") exit(5);'
+          "$PHP_PREFIX/sbin/php-fpm" -v
+          echo 'PHP82_TOOLCHAIN_READY=PASS'
+
+      - name: Compile PECL Imagick using the isolated PHP 8.2.35 phpize
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/imagick-smoke/imagick-3.8.1
+          "$PHP_PREFIX/bin/phpize" > /tmp/imagick-smoke/imagick-phpize.log 2>&1
+          ./configure \
+            --with-php-config="$PHP_PREFIX/bin/php-config" \
+            --with-imagick=/usr \
+            > /tmp/imagick-smoke/imagick-configure.log 2>&1
+          make -j2 > /tmp/imagick-smoke/imagick-make.log 2>&1
+          make install > /tmp/imagick-smoke/imagick-install.log 2>&1
+          EXT_DIR=$("$PHP_PREFIX/bin/php-config" --extension-dir)
+          case "$EXT_DIR" in "$PHP_PREFIX"/*) ;; *) echo 'UNSAFE_EXTENSION_DIR'; exit 22;; esac
+          test -f "$EXT_DIR/imagick.so"
+          echo "$EXT_DIR/imagick.so" > /tmp/imagick-smoke/extension-path
+
+      - name: Verify Imagick module with standalone CLI and FPM
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXTENSION=$(cat /tmp/imagick-smoke/extension-path)
+          "$PHP_PREFIX/bin/php" -n -d "extension=$EXTENSION" -r '
+            if (PHP_VERSION !== "8.2.35" || PHP_ZTS) { exit(11); }
+            if (!extension_loaded("imagick") || phpversion("imagick") !== "3.8.1") { exit(12); }
+            $image = new Imagick();
+            $image->newImage(2, 2, new ImagickPixel("red"));
+            $image->setImageFormat("png");
+            $blob = $image->getImageBlob();
+            if (strlen($blob) < 20) { exit(13); }
+            $test = new Imagick();
+            $test->readImageBlob($blob);
+            if ($test->getImageWidth() !== 2 || $test->getImageHeight() !== 2) { exit(14); }
+            $test->clear();
+            $image->clear();
+            echo "IMAGICK_PNG_ROUNDTRIP=PASS\n";
+            echo "IMAGICK_VERSION=".phpversion("imagick")."\n";
+            echo "PHP_VERSION=".PHP_VERSION."\n";
+            echo "PHP_API=20220829\n";
+          ' | tee /tmp/imagick-smoke/imagick-test.log
+          "$PHP_PREFIX/sbin/php-fpm" -n -d "extension=$EXTENSION" -m \
+            > /tmp/imagick-smoke/fpm-modules.log
+          grep -Fqx 'imagick' /tmp/imagick-smoke/fpm-modules.log
+          {
+            echo 'PLATFORM=Ubuntu 20.04 ARM64'
+            echo 'PHP_SOURCE_SHA256=5737b98601fe5ab1b8c5db0c82ed3158acb9283ed3081ffe2faffb9ac81455e6'
+            echo 'IMAGICK_SOURCE_SHA256=3a3587c0a524c17d0dad9673a160b90cd776e836838474e173b549ed864352ee'
+            cat /tmp/imagick-smoke/imagick-test.log
+            echo 'FPM_IMAGICK_MODULE=PASS'
+            echo 'TEMP_PREFIX_ONLY=true'
+            echo 'DEBIAN_PACKAGES_BUILT=false'
+            echo 'OLD_PRODUCTION_IMAGICK_ABI_VERIFIED=false'
+            echo 'HESTIACP_INTEGRATION_VERIFIED=false'
+            echo 'PRODUCTION_MODIFIED=false'
+            echo 'DEPLOYMENT_READY=false'
+          } > "$GITHUB_WORKSPACE/reports/imagick-php82-arm64.txt"
+
+      - name: Show bounded diagnostics if build failed
+        if: failure()
+        shell: bash
+        run: |
+          if [ -d "$PHP_PREFIX" ]; then
+            echo '===== ISOLATED PHP INSTALL FILES ====='
+            find "$PHP_PREFIX" -maxdepth 2 -type f -name '*php*' -print | head -40
+            if [ -x "$PHP_PREFIX/bin/php-config" ]; then
+              "$PHP_PREFIX/bin/phpize" -v || true
+              "$PHP_PREFIX/bin/php-config" --version || true
+            fi
+          fi
+          for log in /tmp/imagick-smoke/{php-configure,php-make,php-install,imagick-phpize,imagick-configure,imagick-make,imagick-install,fpm-modules}.log; do
+            if [ -f "$log" ]; then
+              echo "===== $(basename "$log") ====="
+              tail -45 "$log"
+            fi
+          done
+
+      - name: Upload text-only verification; never binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php82-imagick381-arm64-focal-smoke
+          path: reports/imagick-php82-arm64.txt
+          if-no-files-found: warn
+          retention-days: 14

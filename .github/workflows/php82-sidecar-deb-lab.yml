@@ -1,0 +1,361 @@
+name: PHP 8.2.35 ARM64 isolated sidecar .deb lab (never publish package)
+
+on:
+  push:
+    branches:
+      - setup/arm64-source-audit
+    paths:
+      - '.github/workflows/php82-sidecar-deb-lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: php82-sidecar-deb-lab
+  cancel-in-progress: true
+
+jobs:
+  isolated-focal-package-proof:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C
+      TZ: UTC
+      # Fixed lab epoch: this is not a release provenance timestamp.
+      SOURCE_DATE_EPOCH: '1790000000'
+      # Research-only stable uname/build labels. Do not reuse for production metadata.
+      PHP_UNAME: 'Linux aarch64 reproducible-build-lab'
+      PHP_BUILD_SYSTEM: 'Ubuntu 20.04 ARM64 CI reproducibility laboratory'
+      PHP_PREFIX: /opt/php82-arm64-sidecar-lab/8.2.35
+    steps:
+      - name: Install Focal build dependencies in disposable container
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            ca-certificates curl xz-utils tar gzip coreutils autoconf binutils \
+            make gcc g++ pkg-config libtool dpkg-dev \
+            libxml2-dev libonig-dev libicu-dev libssl-dev libcurl4-openssl-dev \
+            libzip-dev libpng-dev libjpeg-dev libfreetype6-dev zlib1g-dev \
+            libmagickwand-dev
+
+      - name: Download and check exact upstream PHP 8.2.35 and Imagick 3.7.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sidecar-build reports
+          curl --fail --location --silent --show-error --retry 2 \
+            https://www.php.net/distributions/php-8.2.35.tar.xz \
+            -o /tmp/sidecar-build/php-8.2.35.tar.xz
+          echo '5737b98601fe5ab1b8c5db0c82ed3158acb9283ed3081ffe2faffb9ac81455e6  /tmp/sidecar-build/php-8.2.35.tar.xz' | sha256sum --check
+          curl --fail --location --silent --show-error --retry 2 \
+            https://pecl.php.net/get/imagick-3.7.0.tgz \
+            -o /tmp/sidecar-build/imagick-3.7.0.tgz
+          echo '5a364354109029d224bcbb2e82e15b248be9b641227f45e63425c06531792d3e  /tmp/sidecar-build/imagick-3.7.0.tgz' | sha256sum --check
+          tar --no-same-owner -xJf /tmp/sidecar-build/php-8.2.35.tar.xz -C /tmp/sidecar-build
+          tar --no-same-owner -xzf /tmp/sidecar-build/imagick-3.7.0.tgz -C /tmp/sidecar-build
+
+      - name: Build separate-prefix PHP 8.2.35 CLI and FPM with site-relevant core modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/sidecar-build/php-8.2.35
+          ./configure \
+            --prefix="$PHP_PREFIX" \
+            --with-config-file-path="$PHP_PREFIX/etc" \
+            --with-config-file-scan-dir="$PHP_PREFIX/etc/conf.d" \
+            --disable-all --enable-cli --enable-fpm --disable-cgi --disable-phpdbg --without-pear \
+            --enable-pdo --with-pdo-mysql=mysqlnd --with-mysqli \
+            --enable-mbstring --enable-intl --with-openssl --with-curl \
+            --with-zip --enable-gd --with-freetype --with-jpeg \
+            --enable-opcache --with-zlib --with-libxml --enable-dom --enable-xml \
+            --enable-simplexml > /tmp/sidecar-build/php-configure.log 2>&1
+          make -j2 > /tmp/sidecar-build/php-make.log 2>&1
+          make install > /tmp/sidecar-build/php-install.log 2>&1
+          test -x "$PHP_PREFIX/bin/php"
+          test -x "$PHP_PREFIX/sbin/php-fpm"
+          test -x "$PHP_PREFIX/bin/phpize"
+          test "$("$PHP_PREFIX/bin/php" -n -r 'echo PHP_VERSION;')" = '8.2.35'
+          test "$("$PHP_PREFIX/bin/phpize" -v | sed -n 's/^PHP Api Version:[[:space:]]*//p')" = '20220829'
+          "$PHP_PREFIX/sbin/php-fpm" -v
+
+      - name: Compile Imagick 3.7.0 using sidecar phpize only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/sidecar-build/imagick-3.7.0
+          "$PHP_PREFIX/bin/phpize" > /tmp/sidecar-build/imagick-phpize.log 2>&1
+          ./configure --with-php-config="$PHP_PREFIX/bin/php-config" \
+            --with-imagick=/usr > /tmp/sidecar-build/imagick-configure.log 2>&1
+          make -j2 > /tmp/sidecar-build/imagick-make.log 2>&1
+          make install > /tmp/sidecar-build/imagick-install.log 2>&1
+          EXT_DIR=$("$PHP_PREFIX/bin/php-config" --extension-dir)
+          case "$EXT_DIR" in "$PHP_PREFIX"/*) ;; *) echo 'WRONG_EXTENSION_DIR'; exit 41;; esac
+          test -f "$EXT_DIR/imagick.so"
+          echo "$EXT_DIR/imagick.so" > /tmp/sidecar-build/extension-path
+          readelf -d "$EXT_DIR/imagick.so" | grep -F 'libMagickWand-6.Q16.so.6'
+          readelf -d "$EXT_DIR/imagick.so" | grep -F 'libMagickCore-6.Q16.so.6'
+          "$PHP_PREFIX/bin/php" -n -d "extension=$EXT_DIR/imagick.so" -r '
+            if (PHP_VERSION !== "8.2.35" || PHP_ZTS || phpversion("imagick") !== "3.7.0") exit(42);
+            foreach (["PDO","pdo_mysql","mysqli","mbstring","intl","openssl","curl","zip","gd","dom","SimpleXML"] as $name) {
+              if (!extension_loaded($name)) {fwrite(STDERR,"MISSING=$name\n");exit(43);}
+            }
+            $im=new Imagick();$im->newImage(2,2,new ImagickPixel("red"));$im->setImageFormat("png");
+            $roundtrip=new Imagick();$roundtrip->readImageBlob($im->getImageBlob());
+            if ($roundtrip->getImageWidth()!==2 || $roundtrip->getImageHeight()!==2) exit(44);
+            echo "SIDECAR_MODULE_AND_IMAGE_SMOKE=PASS\n";
+          '
+          "$PHP_PREFIX/sbin/php-fpm" -n -d "extension=$EXT_DIR/imagick.so" -m \
+            | grep -Fx 'imagick'
+
+      - name: Fingerprint ELF sections and all installed files in temporary build tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PHP_PREFIX" = '/opt/php82-arm64-sidecar-lab/8.2.35'
+          OUT="$GITHUB_WORKSPACE/reports/php82-elf-fingerprints.txt"
+          EXT_DIR=$("$PHP_PREFIX/bin/php-config" --extension-dir)
+          case "$EXT_DIR" in "$PHP_PREFIX"/*) ;; *) exit 71 ;; esac
+          printf 'ELF_FINGERPRINT_FORMAT=V1\n' > "$OUT"
+          printf 'PHP_VERSION=8.2.35\nIMAGICK_VERSION=3.7.0\n' >> "$OUT"
+          printf 'SOURCE_DATE_EPOCH=%s\n' "$SOURCE_DATE_EPOCH" >> "$OUT"
+          printf 'GCC_VERSION=%s\n' "$(gcc -dumpfullversion)" >> "$OUT"
+          printf 'BINUTILS_VERSION=%s\n' "$(objcopy --version | head -1)" >> "$OUT"
+          for item in cli fpm imagick; do
+            case "$item" in
+              cli) ELF="$PHP_PREFIX/bin/php" ;;
+              fpm) ELF="$PHP_PREFIX/sbin/php-fpm" ;;
+              imagick) ELF="$EXT_DIR/imagick.so" ;;
+            esac
+            test -f "$ELF"
+            printf 'ELF_FILE_SHA256=%s|%s\n' "$item" "$(sha256sum "$ELF" | cut -d ' ' -f1)" >> "$OUT"
+            BID=$(readelf -n "$ELF" 2>/dev/null | sed -nE 's/^[[:space:]]*Build ID: ([0-9a-f]+)[[:space:]]*$/\1/p' | head -1)
+            if [ -z "$BID" ]; then BID=NOT_PRESENT; fi
+            printf 'ELF_BUILD_ID=%s|%s\n' "$item" "$BID" >> "$OUT"
+            seen=0
+            for section in .text .rodata .data .data.rel.ro .bss .dynstr .strtab .symtab .eh_frame .rela.dyn .rela.plt .note.gnu.build-id .comment .debug_info .debug_line .gnu_debuglink; do
+              tmp=$(mktemp /tmp/sidecar-build/elf-section.XXXXXXXX)
+              if objcopy --dump-section "$section=$tmp" "$ELF" /dev/null >/dev/null 2>&1 && [ -s "$tmp" ]; then
+                printf 'ELF_SECTION_SHA256=%s|%s|%s|%s\n' "$item" "$section" \
+                  "$(sha256sum "$tmp" | cut -d ' ' -f1)" "$(stat -c %s "$tmp")" >> "$OUT"
+                seen=$((seen + 1))
+              fi
+              rm -f -- "$tmp"
+            done
+            test "$seen" -ge 6 || { echo "INSUFFICIENT_ELF_SECTIONS=$item"; exit 72; }
+            printf 'ELF_SECTIONS_RECORDED=%s|%s\n' "$item" "$seen" >> "$OUT"
+          done
+          find "$PHP_PREFIX" -type f -print0 |
+            LC_ALL=C sort -z |
+            while IFS= read -r -d '' name; do
+              relative=$(realpath --relative-to="$PHP_PREFIX" "$name")
+              printf 'INSTALLED_FILE_SHA256=%s|%s\n' "$relative" \
+                "$(sha256sum "$name" | cut -d ' ' -f1)"
+            done >> "$OUT"
+          echo 'ELF_SECTION_INVENTORY=PASS' >> "$OUT"
+          echo 'BINARIES_UPLOADED=false' >> "$OUT"
+          echo 'ORACLE_VPS_MODIFIED=false' >> "$OUT"
+          echo 'ELF_SECTION_INVENTORY=PASS'
+          # Public CI source binaries only: show checksums, not binary payloads.
+          cat "$OUT"
+
+      - name: Construct NON-INSTALLABLE-FOR-PRODUCTION separate-prefix .deb in temporary container
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG=/tmp/sidecar-build/pkg
+          DEB=/tmp/sidecar-build/php82-arm64-sidecar-lab.deb
+          mkdir -p "$PKG$PHP_PREFIX" "$PKG/DEBIAN"
+          cp -a "$PHP_PREFIX/." "$PKG$PHP_PREFIX/"
+          if find "$PKG$PHP_PREFIX" -type l | grep -q .; then
+            echo 'SYMLINKS_REQUIRE_MANUAL_REVIEW'; exit 51
+          fi
+          # All ELF dependencies are derived from this temporary Ubuntu Focal environment.
+          mkdir -p /tmp/sidecar-build/packaging/debian
+          cd /tmp/sidecar-build/packaging
+          cat > debian/control <<'CONTROL'
+          Source: php82-arm64-sidecar-lab
+          Section: interpreters
+          Priority: optional
+          Maintainer: CI Research <ci@example.invalid>
+          Standards-Version: 4.5.0
+
+          Package: php82-arm64-sidecar-lab
+          Architecture: arm64
+          Description: Isolated non-production ARM64 PHP 8.2 compatibility package
+           Research-only sidecar. Do not install on production.
+          CONTROL
+          EXT_FILE=$(cat /tmp/sidecar-build/extension-path)
+          DEPENDS=$(dpkg-shlibdeps -O -e"$PHP_PREFIX/bin/php" -e"$PHP_PREFIX/sbin/php-fpm" -e"$EXT_FILE" \
+            2>/tmp/sidecar-build/shlibdeps.log | sed -n 's/^shlibs:Depends=//p')
+          test -n "$DEPENDS"
+          echo "$DEPENDS" | grep -F 'libc6'
+          cat > "$PKG/DEBIAN/control" <<CONTROL
+          Package: php82-arm64-sidecar-lab
+          Version: 8.2.35-0lab1
+          Section: interpreters
+          Priority: optional
+          Architecture: arm64
+          Maintainer: CI Research <ci@example.invalid>
+          Depends: $DEPENDS
+          Description: Non-production PHP 8.2.35 ARM64 sidecar packaging experiment
+           This laboratory build MUST NOT be installed on production.
+           It has no configuration or service activation scripts.
+          CONTROL
+          test "$(find "$PKG/DEBIAN" -type f | wc -l)" -eq 1
+          # Normalization is strictly limited to the staged package tree.
+          # This removes wall-clock mtimes from tar members without changing contents.
+          test "$SOURCE_DATE_EPOCH" = '1790000000'
+          find "$PKG" -depth -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+          PAYLOAD_FINGERPRINT=$(
+            find "$PKG$PHP_PREFIX" -type f -print0 |
+              LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1
+          )
+          CONTROL_FINGERPRINT=$(sha256sum "$PKG/DEBIAN/control" | cut -d ' ' -f1)
+          PHP_BINARY_SHA256=$(sha256sum "$PHP_PREFIX/bin/php" | cut -d ' ' -f1)
+          IMAGICK_BINARY_SHA256=$(sha256sum "$EXT_FILE" | cut -d ' ' -f1)
+          dpkg-deb --build --root-owner-group "$PKG" "$DEB"
+          # Same staged inputs, independently assembled twice, must be identical.
+          SECOND_DEB=/tmp/sidecar-build/php82-arm64-sidecar-lab-reassembly.deb
+          dpkg-deb --build --root-owner-group "$PKG" "$SECOND_DEB"
+          if ! cmp -s "$DEB" "$SECOND_DEB"; then
+            echo "SAME_STAGE_DEB_REASSEMBLY=FAIL"
+            sha256sum "$DEB" "$SECOND_DEB"
+            exit 57
+          fi
+          echo "SAME_STAGE_DEB_REASSEMBLY=PASS"
+          test "$(dpkg-deb -f "$DEB" Package)" = 'php82-arm64-sidecar-lab'
+          test "$(dpkg-deb -f "$DEB" Version)" = '8.2.35-0lab1'
+          test "$(dpkg-deb -f "$DEB" Architecture)" = 'arm64'
+          dpkg-deb --contents "$DEB" > /tmp/sidecar-build/package-contents.txt
+          awk '{print $NF}' /tmp/sidecar-build/package-contents.txt \
+            | grep -Ev '^\./$|^\./opt(/php82-arm64-sidecar-lab(/8[.]2[.]35(/.*)?)?)?/?$' \
+            > /tmp/sidecar-build/unexpected-paths.txt || true
+          test ! -s /tmp/sidecar-build/unexpected-paths.txt
+          dpkg-deb --ctrl-tarfile "$DEB" | tar -tf - > /tmp/sidecar-build/control-members.txt
+          if grep -E '(^|/)(preinst|postinst|prerm|postrm|triggers)$' \
+            /tmp/sidecar-build/control-members.txt; then
+            echo 'MAINTAINER_SCRIPT_PRESENT'; exit 52
+          fi
+          mkdir -p /tmp/sidecar-build/unpack
+          dpkg-deb -x "$DEB" /tmp/sidecar-build/unpack
+          cmp "$PHP_PREFIX/bin/php" "/tmp/sidecar-build/unpack$PHP_PREFIX/bin/php"
+          cmp "$EXT_FILE" "/tmp/sidecar-build/unpack$EXT_FILE"
+          {
+            echo 'RESULT=SIDECAR_DEB_PACKAGED_AND_EXTRACTED'
+            echo 'PLATFORM=ubuntu-20.04-arm64'
+            echo 'VERSION=8.2.35-0lab1'
+            echo 'PACKAGE=php82-arm64-sidecar-lab'
+            echo 'INSTALL_ROOT=opt/php82-arm64-sidecar-lab/8.2.35'
+            echo 'PHP_API=20220829'
+            echo 'IMAGICK_VERSION=3.7.0'
+            echo "SHLIBS_DEPENDS=$DEPENDS"
+            echo "DEB_BYTES=$(stat -c %s "$DEB")"
+            echo "DEB_SHA256=$(sha256sum "$DEB" | cut -d ' ' -f1)"
+            echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+            echo "PAYLOAD_CONTENT_MANIFEST_SHA256=$PAYLOAD_FINGERPRINT"
+            echo "CONTROL_SHA256=$CONTROL_FINGERPRINT"
+            echo "PHP_BIN_SHA256=$PHP_BINARY_SHA256"
+            echo "IMAGICK_SO_SHA256=$IMAGICK_BINARY_SHA256"
+            echo 'SAME_STAGE_DEB_REASSEMBLY=PASS'
+            echo 'CROSS_RUN_BIT_FOR_BIT_REPRODUCIBILITY=NOT_PROVEN'
+            echo 'PACKAGE_PUBLISHED=false'
+            echo 'PACKAGE_INSTALLED_WITH_DPKG=false'
+            echo 'PRODUCTION_COMPATIBILITY_PROVEN=false'
+            echo 'PRODUCTION_DEPLOYMENT_READY=false'
+            echo 'ORACLE_VPS_MODIFIED=false'
+          } > "$GITHUB_WORKSPACE/reports/php82-sidecar-package-lab.txt"
+          cat "$GITHUB_WORKSPACE/reports/php82-sidecar-package-lab.txt"
+
+      - name: Install, verify and remove ONLY lab package in disposable Focal container
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEB=/tmp/sidecar-build/php82-arm64-sidecar-lab.deb
+          PKG_NAME=php82-arm64-sidecar-lab
+          # Fail closed: all destructive operations are confined to a fixed lab prefix.
+          test "$PHP_PREFIX" = '/opt/php82-arm64-sidecar-lab/8.2.35'
+          test "$(dpkg-deb -f "$DEB" Package)" = "$PKG_NAME"
+          test "$(dpkg-deb -f "$DEB" Version)" = '8.2.35-0lab1'
+          test "$(dpkg-deb -f "$DEB" Architecture)" = 'arm64'
+          if dpkg-query -W -f='${Status}' "$PKG_NAME" 2>/dev/null | grep -Fqx 'install ok installed'; then
+            echo 'PACKAGE_ALREADY_INSTALLED_REFUSE_TEST'; exit 61
+          fi
+          dpkg-query -W -f='${Package}\t${Version}\t${db:Status-Abbrev}\n' \
+            | LC_ALL=C sort > /tmp/sidecar-build/package-set-before.txt
+          # The source-build installation is deliberately discarded before
+          # testing installation of the exact .deb in this ephemeral container.
+          test -f "$PHP_PREFIX/bin/php"
+          rm -rf -- "$PHP_PREFIX"
+          test ! -e "$PHP_PREFIX"
+          dpkg --no-triggers --install "$DEB"
+          test "$(dpkg-query -W -f='${db:Status-Status}' "$PKG_NAME")" = installed
+          test -x "$PHP_PREFIX/bin/php"
+          test -x "$PHP_PREFIX/sbin/php-fpm"
+          EXT_DIR=$("$PHP_PREFIX/bin/php-config" --extension-dir)
+          case "$EXT_DIR" in "$PHP_PREFIX"/*) ;; *) echo 'INSTALL_EXTENSION_DIR_ESCAPE'; exit 62 ;; esac
+          test -f "$EXT_DIR/imagick.so"
+          dpkg-query -S "$PHP_PREFIX/bin/php" | grep -F "$PKG_NAME:"
+          dpkg --verify "$PKG_NAME"
+          "$PHP_PREFIX/bin/php" -n -d "extension=$EXT_DIR/imagick.so" -r '
+            if (PHP_VERSION !== "8.2.35" || PHP_ZTS || phpversion("imagick") !== "3.7.0") exit(63);
+            foreach (["PDO","pdo_mysql","mysqli","mbstring","intl","openssl","curl","zip","gd","dom","SimpleXML"] as $ext) {
+              if (!extension_loaded($ext)) exit(64);
+            }
+            $img=new Imagick(); $img->newImage(2,2,new ImagickPixel("blue"));
+            $img->setImageFormat("png"); $img2=new Imagick();
+            $img2->readImageBlob($img->getImageBlob());
+            if ($img2->getImageWidth()!==2 || $img2->getImageHeight()!==2) exit(65);
+            echo "INSTALLED_DEB_PHP_IMAGICK_PNG=PASS\\n";
+          '
+          "$PHP_PREFIX/sbin/php-fpm" -n -d "extension=$EXT_DIR/imagick.so" -m \
+            | grep -Fx 'imagick'
+          dpkg --no-triggers --remove "$PKG_NAME"
+          test ! -e "$PHP_PREFIX/bin/php"
+          test ! -e "$EXT_DIR/imagick.so"
+          dpkg --no-triggers --purge "$PKG_NAME"
+          if dpkg-query -W -f='${db:Status-Status}' "$PKG_NAME" 2>/dev/null | grep -Fqx installed; then
+            echo 'PACKAGE_STILL_INSTALLED'; exit 66
+          fi
+          dpkg-query -W -f='${Package}\t${Version}\t${db:Status-Abbrev}\n' \
+            | LC_ALL=C sort > /tmp/sidecar-build/package-set-after.txt
+          cmp /tmp/sidecar-build/package-set-before.txt /tmp/sidecar-build/package-set-after.txt
+          {
+            echo 'LAB_PACKAGE_INSTALL=PASS'
+            echo 'LAB_PACKAGE_DPKG_VERIFY=PASS'
+            echo 'LAB_PACKAGE_CLI_AND_FPM=PASS'
+            echo 'LAB_PACKAGE_PNG_ROUNDTRIP=PASS'
+            echo 'LAB_PACKAGE_REMOVE_AND_PURGE=PASS'
+            echo 'LAB_DPKG_PACKAGE_INVENTORY_UNCHANGED=PASS'
+            echo 'TEST_ENVIRONMENT=TEMPORARY_GITHUB_UBUNTU_20_04_ARM64'
+            echo 'SERVER_ROLLBACK_PROVEN=false'
+            echo 'ORIGINAL_SURYPACKAGES_RESTORED=false'
+            echo 'ORACLE_VPS_MODIFIED=false'
+            echo 'PRODUCTION_DEPLOYMENT_READY=false'
+          } >> "$GITHUB_WORKSPACE/reports/php82-sidecar-package-lab.txt"
+          echo 'LAB_INSTALL_REMOVE_TESTS=PASS'
+
+      - name: Print short failed-step diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          for f in /tmp/sidecar-build/{php-configure,php-make,php-install,imagick-phpize,imagick-configure,imagick-make,imagick-install,shlibdeps}.log /tmp/sidecar-build/unexpected-paths.txt; do
+            if [ -f "$f" ]; then
+              echo "===== $(basename "$f") ====="
+              tail -35 "$f"
+            fi
+          done
+
+      - name: Upload ONLY textual evidence; never .deb binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php82-arm64-sidecar-deb-lab-report
+          path: reports/*.txt
+          if-no-files-found: warn
+          retention-days: 14
