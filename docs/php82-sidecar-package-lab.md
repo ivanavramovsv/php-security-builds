@@ -141,3 +141,17 @@ DEPLOYMENT_READY=NO.
 Това НЕ доказва, че различието е само в PHP CLI — може да има други различаващи се файлове. Без запазени binary/diff отчети не можем да посочим причината на ниво ELF секции. Бъдещият CI анализ трябва да сравни ELF build ID, секционни digest-и, compiler/linker flags и други инсталирани файлове. Разликите не оправдават публикуване на пакет за production.
 
 **STATUS=NON_REPRODUCIBLE_INDEPENDENT_PHP_BUILD; DEPLOYMENT_READY=NO.**
+
+## Етап 1N — ELF секции и локализация на невъзпроизводимостта
+
+CI workflow измерва ELF_BUILD_ID, ELF_FILE_SHA256 и ELF_SECTION_SHA256 за PHP CLI, PHP-FPM и Imagick, плюс SHA-256 на всички инсталирани файлове в лабораторния PHP prefix. Това е вграден GitHub Actions тест, а не диагностичен скрипт за Oracle.
+
+Избраните секции включват .text, .rodata, .data, .data.rel.ro, .dynstr, .strtab, .symtab, .eh_frame, .rela.dyn, .rela.plt, .note.gnu.build-id, .comment, .debug_info и .debug_line (само ако съществуват и не са празни).
+
+[Run 40162758600, attempt 1](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40162758600) приключи успешно за ELF инвентар, пакетиране, инсталация, PHP/Imagick runtime и чисто премахване от временния Focal ARM64 контейнер. Записани са 12 непразни секции за всеки от трите ELF файла, плюс SHA-256 на 353 инсталирани файла.
+
+Attempt 1: PHP CLI SHA-256 e0650471ea9b42d53eada0c9159379992ee3cb170bcabe9812104a0d45858f19; PHP-FPM SHA-256 852cb1a23be46df8798209b17c3cb36af8d05faaf8dbc0ecd772b4e4a990b14a; Imagick SO SHA-256 34bcd4f0c1b56b402cd3ddade78b7c62d502ddeae0175090b2b35338b04504cb.
+
+Независима втора компилация от същия Git SHA е необходима за установяване на действителните ELF секционни разлики. Първоначалният PASS е успех на измерването, а не доказана възпроизводимост.
+
+Публикуват се само текстови hash отчети; никакви .deb, PHP бинарни файлове или Oracle VPS данни. DEPLOYMENT_READY=NO.
