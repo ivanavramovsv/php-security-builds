@@ -137,7 +137,7 @@ jobs:
             seen=0
             for section in .text .rodata .data .data.rel.ro .bss .dynstr .strtab .symtab .eh_frame .rela.dyn .rela.plt .note.gnu.build-id .comment .debug_info .debug_line .gnu_debuglink; do
               tmp=$(mktemp /tmp/sidecar-build/elf-section.XXXXXXXX)
-              if objcopy --dump-section "$section=$tmp" "$ELF" /dev/null >/dev/null 2>&1; then
+              if objcopy --dump-section "$section=$tmp" "$ELF" /dev/null >/dev/null 2>&1 && [ -s "$tmp" ]; then
                 printf 'ELF_SECTION_SHA256=%s|%s|%s|%s\n' "$item" "$section" \
                   "$(sha256sum "$tmp" | cut -d ' ' -f1)" "$(stat -c %s "$tmp")" >> "$OUT"
                 seen=$((seen + 1))
