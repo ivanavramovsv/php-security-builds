@@ -110,6 +110,55 @@ jobs:
           "$PHP_PREFIX/sbin/php-fpm" -n -d "extension=$EXT_DIR/imagick.so" -m \
             | grep -Fx 'imagick'
 
+      - name: Fingerprint ELF sections and all installed files in temporary build tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PHP_PREFIX" = '/opt/php82-arm64-sidecar-lab/8.2.35'
+          OUT="$GITHUB_WORKSPACE/reports/php82-elf-fingerprints.txt"
+          EXT_DIR=$("$PHP_PREFIX/bin/php-config" --extension-dir)
+          case "$EXT_DIR" in "$PHP_PREFIX"/*) ;; *) exit 71 ;; esac
+          printf 'ELF_FINGERPRINT_FORMAT=V1\n' > "$OUT"
+          printf 'PHP_VERSION=8.2.35\nIMAGICK_VERSION=3.7.0\n' >> "$OUT"
+          printf 'SOURCE_DATE_EPOCH=%s\n' "$SOURCE_DATE_EPOCH" >> "$OUT"
+          printf 'GCC_VERSION=%s\n' "$(gcc -dumpfullversion)" >> "$OUT"
+          printf 'BINUTILS_VERSION=%s\n' "$(objcopy --version | head -1)" >> "$OUT"
+          for item in cli fpm imagick; do
+            case "$item" in
+              cli) ELF="$PHP_PREFIX/bin/php" ;;
+              fpm) ELF="$PHP_PREFIX/sbin/php-fpm" ;;
+              imagick) ELF="$EXT_DIR/imagick.so" ;;
+            esac
+            test -f "$ELF"
+            printf 'ELF_FILE_SHA256=%s|%s\n' "$item" "$(sha256sum "$ELF" | cut -d ' ' -f1)" >> "$OUT"
+            BID=$(readelf -n "$ELF" 2>/dev/null | sed -nE 's/^[[:space:]]*Build ID: ([0-9a-f]+)[[:space:]]*$/\1/p' | head -1)
+            if [ -z "$BID" ]; then BID=NOT_PRESENT; fi
+            printf 'ELF_BUILD_ID=%s|%s\n' "$item" "$BID" >> "$OUT"
+            seen=0
+            for section in .text .rodata .data .data.rel.ro .bss .dynstr .strtab .symtab .eh_frame .rela.dyn .rela.plt .note.gnu.build-id .comment .debug_info .debug_line .gnu_debuglink; do
+              tmp=$(mktemp /tmp/sidecar-build/elf-section.XXXXXXXX)
+              if objcopy --dump-section "$section=$tmp" "$ELF" /dev/null >/dev/null 2>&1; then
+                printf 'ELF_SECTION_SHA256=%s|%s|%s|%s\n' "$item" "$section" \
+                  "$(sha256sum "$tmp" | cut -d ' ' -f1)" "$(stat -c %s "$tmp")" >> "$OUT"
+                seen=$((seen + 1))
+              fi
+              rm -f -- "$tmp"
+            done
+            test "$seen" -ge 6 || { echo "INSUFFICIENT_ELF_SECTIONS=$item"; exit 72; }
+            printf 'ELF_SECTIONS_RECORDED=%s|%s\n' "$item" "$seen" >> "$OUT"
+          done
+          find "$PHP_PREFIX" -type f -print0 |
+            LC_ALL=C sort -z |
+            while IFS= read -r -d '' name; do
+              relative=$(realpath --relative-to="$PHP_PREFIX" "$name")
+              printf 'INSTALLED_FILE_SHA256=%s|%s\n' "$relative" \
+                "$(sha256sum "$name" | cut -d ' ' -f1)"
+            done >> "$OUT"
+          echo 'ELF_SECTION_INVENTORY=PASS' >> "$OUT"
+          echo 'BINARIES_UPLOADED=false' >> "$OUT"
+          echo 'ORACLE_VPS_MODIFIED=false' >> "$OUT"
+          echo 'ELF_SECTION_INVENTORY=PASS'
+
       - name: Construct NON-INSTALLABLE-FOR-PRODUCTION separate-prefix .deb in temporary container
         shell: bash
         run: |
@@ -302,6 +351,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: php82-arm64-sidecar-deb-lab-report
-          path: reports/php82-sidecar-package-lab.txt
+          path: reports/*.txt
           if-no-files-found: warn
           retention-days: 14
