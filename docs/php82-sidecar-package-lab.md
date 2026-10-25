@@ -155,3 +155,16 @@ Attempt 1: PHP CLI SHA-256 e0650471ea9b42d53eada0c9159379992ee3cb170bcabe9812104
 Независима втора компилация от същия Git SHA е необходима за установяване на действителните ELF секционни разлики. Първоначалният PASS е успех на измерването, а не доказана възпроизводимост.
 
 Публикуват се само текстови hash отчети; никакви .deb, PHP бинарни файлове или Oracle VPS данни. DEPLOYMENT_READY=NO.
+
+
+### Етап 1N — първопричина за различните ELF .rodata секции
+
+Два независими GitHub Actions ARM64/Focal build-а от един и същ commit показаха 3 различни инсталирани файла от 353: `bin/php`, `sbin/php-fpm` и `include/php/main/php_config.h`. За CLI и FPM секция `.text` е с идентичен SHA-256; от 12 проверени ELF секции се различават само `.rodata` и `.note.gnu.build-id`. Imagick SO е напълно идентичен.
+
+В [configure-header comparison #40163889923](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40163889923) двата конфигурационни файла се различават точно по 2 макроса: `PHP_UNAME` и `PHP_BUILD_SYSTEM`. Оригиналният upstream `configure.ac` на PHP 8.2.35 задава стойността на `PHP_UNAME` от `uname -a`, ако не е посочена, а `PHP_BUILD_SYSTEM` по подразбиране наследява `PHP_UNAME`. GitHub runner hostname/kernel метаданните могат да варират между компилациите.
+
+В отделен [независим header comparison #40164022371](https://github.com/ivanavramovsv/php-security-builds/actions/runs/40164022371) установихме `HEADER_MACRO_SHA256_MISMATCH_COUNT=0` и `FULL_HEADER_SHA256_MATCH=true` след задаване на фиксирани лабораторни `PHP_UNAME`/`PHP_BUILD_SYSTEM` променливи преди `./configure`. Това доказва идентичност на пълните генерирани `php_config.h` файлове между две отделни машини.
+
+Промяната вече е въведена и в пълния **изолиран CI sidecar build**. Тя е подходяща само за тези лабораторни пакети; това не са действителни данни за Oracle VPS и не трябва да се пренасят като подвеждащи production build метаданни без отделно решение.
+
+Независима двоична възпроизводимост на целия PHP/Imagick `.deb` пакет трябва да се потвърди отделно чрез две пълни компилации от един и същ Git SHA. До такова сравнение не се декларира reproducibility PASS и `DEPLOYMENT_READY=NO`.
