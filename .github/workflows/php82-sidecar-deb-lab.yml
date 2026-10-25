@@ -27,6 +27,9 @@ jobs:
       TZ: UTC
       # Fixed lab epoch: this is not a release provenance timestamp.
       SOURCE_DATE_EPOCH: '1790000000'
+      # Research-only stable uname/build labels. Do not reuse for production metadata.
+      PHP_UNAME: 'Linux aarch64 reproducible-build-lab'
+      PHP_BUILD_SYSTEM: 'Ubuntu 20.04 ARM64 CI reproducibility laboratory'
       PHP_PREFIX: /opt/php82-arm64-sidecar-lab/8.2.35
     steps:
       - name: Install Focal build dependencies in disposable container
